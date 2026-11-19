@@ -1,0 +1,6 @@
+{
+  "name": "دفتر الشغل - ساعات العمل والأوفر تايم",
+  "description": "تطبيق شخصي بسيط وسريع لحساب ساعات الشغل الفعلية والأوفر تايم، مع دعم الورديات التلاتة، والتقارير الشهرية، والعمل بدون إنترنت.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
