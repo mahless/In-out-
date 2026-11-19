@@ -24,6 +24,7 @@ import {
   SHIFTS,
 } from '../utils/workCalculations';
 import { RtlDateInput, RtlTimeInput } from './RtlDateTimeInput';
+import { useModalBackHandler } from '../hooks/useNavigationHistory';
 
 interface WorkLogViewProps {
   entries: WorkEntry[];
@@ -53,6 +54,13 @@ export const WorkLogView: React.FC<WorkLogViewProps> = ({
   const [detailEntry, setDetailEntry] = useState<WorkEntry | null>(null);
   const [editingEntry, setEditingEntry] = useState<WorkEntry | null>(null);
   const [deletingEntry, setDeletingEntry] = useState<WorkEntry | null>(null);
+
+  const isAnyModalOpen = Boolean(detailEntry || editingEntry || deletingEntry);
+  useModalBackHandler('worklog-modal', isAnyModalOpen, () => {
+    setDetailEntry(null);
+    setEditingEntry(null);
+    setDeletingEntry(null);
+  });
 
   // Edit modal form state
   const [editDate, setEditDate] = useState('');

@@ -21,6 +21,7 @@ import {
 } from '../utils/workCalculations';
 import { exportMonthlyExcel, exportMonthlyPdf, downloadJsonBackup } from '../utils/exportReports';
 import { parseBackupJson } from '../utils/storage';
+import { useModalBackHandler } from '../hooks/useNavigationHistory';
 
 interface ReportsBackupViewProps {
   appData: AppStorageData;
@@ -52,6 +53,10 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
     type: 'success' | 'error';
     text: string;
   } | null>(null);
+
+  useModalBackHandler('backup-restore-modal', Boolean(pendingBackup), () => {
+    setPendingBackup(null);
+  });
 
   const summary = useMemo(
     () => calculateMonthlySummary(appData.entries, selectedMonth),

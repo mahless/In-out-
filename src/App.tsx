@@ -16,12 +16,11 @@ import { WorkLogView } from './components/WorkLogView';
 import { ReportsBackupView } from './components/ReportsBackupView';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineBanner } from './components/OfflineBanner';
+import { NavigationProvider, useAppNavigation } from './hooks/useNavigationHistory';
 
-type ActiveTab = 'today' | 'log' | 'reports';
-
-export default function App() {
+function AppShell() {
   const [appData, setAppData] = useState<AppStorageData>(() => loadAppData());
-  const [activeTab, setActiveTab] = useState<ActiveTab>('today');
+  const { activeTab, navigateToTab } = useAppNavigation();
   const [selectedDate, setSelectedDate] = useState<string>(() => getLocalDateString());
 
   // Automatically track current calendar month so transitioning to a new month updates totals naturally
@@ -98,18 +97,18 @@ export default function App() {
 
   const handleJumpToRegisterDate = (date: string) => {
     setSelectedDate(date);
-    setActiveTab('today');
+    navigateToTab('today');
   };
 
   return (
     <div className="min-h-screen bg-slate-50 pb-16 text-slate-900 md:pb-10">
-      {/* Top Bar (Non-sticky on mobile to preserve 15% sticky budget, clean 3-zone bar on desktop) */}
+      {/* Top Bar */}
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-8 px-4 py-3 sm:px-6">
           {/* Zone 1: Brand Wordmark */}
           <button
             type="button"
-            onClick={() => setActiveTab('today')}
+            onClick={() => navigateToTab('today')}
             className="font-display text-xl font-extrabold tracking-tight text-teal-800 whitespace-nowrap shrink-0 cursor-pointer"
           >
             دفتر الشغل
@@ -122,7 +121,7 @@ export default function App() {
           >
             <button
               type="button"
-              onClick={() => setActiveTab('today')}
+              onClick={() => navigateToTab('today')}
               className={`border-b-2 py-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 activeTab === 'today'
                   ? 'border-teal-700 text-teal-800'
@@ -133,7 +132,7 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('log')}
+              onClick={() => navigateToTab('log')}
               className={`border-b-2 py-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 activeTab === 'log'
                   ? 'border-teal-700 text-teal-800'
@@ -144,7 +143,7 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('reports')}
+              onClick={() => navigateToTab('reports')}
               className={`border-b-2 py-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 activeTab === 'reports'
                   ? 'border-teal-700 text-teal-800'
@@ -160,7 +159,7 @@ export default function App() {
             <PWAInstallButton />
             <button
               type="button"
-              onClick={() => setActiveTab('reports')}
+              onClick={() => navigateToTab('reports')}
               className="hidden min-h-[40px] items-center rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-800 transition-colors hover:bg-slate-50 whitespace-nowrap shrink-0 cursor-pointer md:inline-flex"
             >
               النسخ الاحتياطي
@@ -184,7 +183,7 @@ export default function App() {
             onCheckIn={handleCheckIn}
             onUpdateEntry={handleUpdateEntry}
             onDeleteEntry={handleDeleteEntry}
-            onOpenWorkLog={() => setActiveTab('log')}
+            onOpenWorkLog={() => navigateToTab('log')}
           />
         )}
 
@@ -214,7 +213,7 @@ export default function App() {
       >
         <button
           type="button"
-          onClick={() => setActiveTab('today')}
+          onClick={() => navigateToTab('today')}
           className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-bold cursor-pointer ${
             activeTab === 'today' ? 'text-teal-700' : 'text-slate-500'
           }`}
@@ -225,7 +224,7 @@ export default function App() {
 
         <button
           type="button"
-          onClick={() => setActiveTab('log')}
+          onClick={() => navigateToTab('log')}
           className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-bold cursor-pointer ${
             activeTab === 'log' ? 'text-teal-700' : 'text-slate-500'
           }`}
@@ -236,7 +235,7 @@ export default function App() {
 
         <button
           type="button"
-          onClick={() => setActiveTab('reports')}
+          onClick={() => navigateToTab('reports')}
           className={`flex flex-col items-center justify-center gap-0.5 text-[11px] font-bold cursor-pointer ${
             activeTab === 'reports' ? 'text-teal-700' : 'text-slate-500'
           }`}
@@ -248,5 +247,13 @@ export default function App() {
 
       <OfflineBanner />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <NavigationProvider>
+      <AppShell />
+    </NavigationProvider>
   );
 }

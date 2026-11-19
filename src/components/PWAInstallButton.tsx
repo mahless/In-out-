@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Download, Smartphone, X } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { useModalBackHandler } from '../hooks/useNavigationHistory';
 
 interface PWAInstallButtonProps {
   compact?: boolean;
@@ -9,6 +10,10 @@ interface PWAInstallButtonProps {
 export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ compact = false }) => {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [showGuide, setShowGuide] = useState(false);
+
+  useModalBackHandler('ios-install-guide', showGuide, () => {
+    setShowGuide(false);
+  });
 
   if (isInstalled) {
     return null;
