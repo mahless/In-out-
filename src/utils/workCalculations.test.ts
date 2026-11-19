@@ -2,11 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   calculateEntryDuration,
+  calculateMonthlyFinancials,
   calculateMonthlySummary,
+  classifyIntervalDayNightMinutes,
   createWorkEntry,
   deleteWorkEntry,
   formatMinutesToHHMM,
   inferCheckOutDate,
+  toEpochMinutes,
   updateWorkEntry,
 } from './workCalculations';
 import {
@@ -16,6 +19,7 @@ import {
   migrateStorageData,
   parseBackupJson,
   saveAppData,
+  STORAGE_KEY,
   StorageLike,
 } from './storage';
 import { WorkEntry } from '../types/work';
@@ -30,9 +34,10 @@ function createMemoryStorage(): StorageLike {
   };
 }
 
-test('1. يوم عمل 8 ساعات بالضبط (07:00 إلى 15:00)', () => {
+test('1. يوم عمل داخل حدود الوردية الأولى بالضبط (07:00 إلى 15:00) -> بدون أوفر تايم', () => {
   const res = calculateEntryDuration({
     workDate: '2026-11-18',
+    shift: 'shift1',
     checkInTime: '07:00',
     checkOutDate: '2026-11-18',
     checkOutTime: '15:00',
@@ -41,188 +46,333 @@ test('1. يوم عمل 8 ساعات بالضبط (07:00 إلى 15:00)', () => {
   assert.equal(res.isComplete, true);
   assert.equal(res.workedMinutes, 480);
   assert.equal(res.overtimeMinutes, 0);
+  assert.equal(res.dayOvertimeMinutes, 0);
+  assert.equal(res.nightOvertimeMinutes, 0);
   assert.equal(res.workedFormatted, '08:00');
   assert.equal(res.overtimeFormatted, '00:00');
 });
 
-test('2. يوم عمل 10 ساعات (07:00 إلى 17:00 و 07:30 إلى 17:30)', () => {
-  const a = calculateEntryDuration({
+test('2. حضور قبل الوردية + انصراف بعد الوردية (الأولى 06:00 إلى 15:30 -> 01:30 أوفر تايم نهاري)', () => {
+  const res = calculateEntryDuration({
     workDate: '2026-11-18',
-    checkInTime: '07:00',
+    shift: 'shift1',
+    checkInTime: '06:00',
+    checkOutDate: '2026-11-18',
+    checkOutTime: '15:30',
+  });
+  assert.equal(res.isValid, true);
+  assert.equal(res.workedFormatted, '09:30');
+  assert.equal(res.preShiftOvertimeMinutes, 60);
+  assert.equal(res.postShiftOvertimeMinutes, 30);
+  assert.equal(res.overtimeFormatted, '01:30');
+  assert.equal(res.dayOvertimeFormatted, '01:30');
+  assert.equal(res.nightOvertimeFormatted, '00:00');
+});
+
+test('3. التأخير أو الانصراف المبكر لا يُخصم من الأوفر تايم ولا يعوّضه (09:00 إلى 17:00 على الأولى -> 02:00 أوفر تايم)', () => {
+  const lateWithOt = calculateEntryDuration({
+    workDate: '2026-11-18',
+    shift: 'shift1',
+    checkInTime: '09:00',
     checkOutDate: '2026-11-18',
     checkOutTime: '17:00',
   });
-  assert.equal(a.workedFormatted, '10:00');
-  assert.equal(a.overtimeFormatted, '02:00');
+  assert.equal(lateWithOt.workedFormatted, '08:00');
+  assert.equal(lateWithOt.preShiftOvertimeMinutes, 0);
+  assert.equal(lateWithOt.postShiftOvertimeMinutes, 120);
+  assert.equal(lateWithOt.overtimeFormatted, '02:00');
+  assert.equal(lateWithOt.dayOvertimeFormatted, '02:00');
 
-  const b = calculateEntryDuration({
-    workDate: '2026-11-19',
-    checkInTime: '07:30',
-    checkOutDate: '2026-11-19',
-    checkOutTime: '17:30',
-  });
-  assert.equal(b.workedFormatted, '10:00');
-  assert.equal(b.overtimeFormatted, '02:00');
-});
-
-test('3. يوم عمل أقل من 8 ساعات — الأوفر تايم يكون صفرًا ولا يظهر بالسالب', () => {
-  const res = calculateEntryDuration({
+  // Early departure with pre-shift OT -> early departure does NOT deduct pre-shift OT
+  const earlyDepWithPreOt = calculateEntryDuration({
     workDate: '2026-11-18',
+    shift: 'shift1',
+    checkInTime: '06:00',
+    checkOutDate: '2026-11-18',
+    checkOutTime: '14:00',
+  });
+  assert.equal(earlyDepWithPreOt.workedFormatted, '08:00');
+  assert.equal(earlyDepWithPreOt.overtimeFormatted, '01:00');
+  assert.equal(earlyDepWithPreOt.dayOvertimeFormatted, '01:00');
+
+  // Inside shift boundaries only (08:15 to 14:45) -> 00:00 OT
+  const shortInside = calculateEntryDuration({
+    workDate: '2026-11-18',
+    shift: 'shift1',
     checkInTime: '08:15',
     checkOutDate: '2026-11-18',
     checkOutTime: '14:45',
   });
-  assert.equal(res.isValid, true);
-  assert.equal(res.workedMinutes, 390);
-  assert.equal(res.overtimeMinutes, 0);
-  assert.equal(res.workedFormatted, '06:30');
-  assert.equal(res.overtimeFormatted, '00:00');
+  assert.equal(shortInside.workedFormatted, '06:30');
+  assert.equal(shortInside.overtimeMinutes, 0);
+  assert.equal(shortInside.overtimeFormatted, '00:00');
 });
 
-test('4. وردية ليلية تعبر منتصف الليل (23:00 إلى 09:00 اليوم التالي)', () => {
-  const inferredDate = inferCheckOutDate('2026-11-18', '23:00', '09:00', 'shift3');
+test('4. تقسيم الأوفر تايم تلقائيًا عند حد 18:00 (الأولى 07:00 إلى 19:00 -> 03:00 نهاري + 01:00 ليلي)', () => {
+  const res = calculateEntryDuration({
+    workDate: '2026-11-18',
+    shift: 'shift1',
+    checkInTime: '07:00',
+    checkOutDate: '2026-11-18',
+    checkOutTime: '19:00',
+  });
+  // Post-shift 15:00–19:00 => 15:00–18:00 (03:00 day) + 18:00–19:00 (01:00 night)
+  assert.equal(res.overtimeFormatted, '04:00');
+  assert.equal(res.dayOvertimeFormatted, '03:00');
+  assert.equal(res.nightOvertimeFormatted, '01:00');
+});
+
+test('5. تقسيم الأوفر تايم تلقائيًا عند حد 06:00 (الأولى حضور 05:00 وانصراف 15:00 -> 01:00 ليلي + 01:00 نهاري)', () => {
+  const res = calculateEntryDuration({
+    workDate: '2026-11-18',
+    shift: 'shift1',
+    checkInTime: '05:00',
+    checkOutDate: '2026-11-18',
+    checkOutTime: '15:00',
+  });
+  // Pre-shift 05:00–07:00 => 05:00–06:00 (01:00 night) + 06:00–07:00 (01:00 day)
+  assert.equal(res.overtimeFormatted, '02:00');
+  assert.equal(res.dayOvertimeFormatted, '01:00');
+  assert.equal(res.nightOvertimeFormatted, '01:00');
+});
+
+test('6. الوردية التانية (15:00 إلى 23:00) — أوفر تايم قبل وبعد الوردية عبر حد 18:00 ومنتصف الليل', () => {
+  // Check in 13:00 (2h pre-shift day), check out next day 00:30 (1.5h post-shift night)
+  const inferred = inferCheckOutDate('2026-11-11', '13:00', '00:30', 'shift2');
+  assert.equal(inferred, '2026-11-12');
+
+  const res = calculateEntryDuration({
+    workDate: '2026-11-11',
+    shift: 'shift2',
+    checkInTime: '13:00',
+    checkOutDate: inferred,
+    checkOutTime: '00:30',
+  });
+  assert.equal(res.workedFormatted, '11:30');
+  assert.equal(res.preShiftOvertimeMinutes, 120); // 13:00–15:00 (Day)
+  assert.equal(res.postShiftOvertimeMinutes, 90); // 23:00–00:30 (Night)
+  assert.equal(res.overtimeFormatted, '03:30');
+  assert.equal(res.dayOvertimeFormatted, '02:00');
+  assert.equal(res.nightOvertimeFormatted, '01:30');
+});
+
+test('7. الوردية التالتة تعبر منتصف الليل (23:00 إلى 07:00) — حضور 22:00 وانصراف 09:00', () => {
+  const inferredDate = inferCheckOutDate('2026-11-18', '22:00', '09:00', 'shift3');
   assert.equal(inferredDate, '2026-11-19');
 
   const res = calculateEntryDuration({
     workDate: '2026-11-18',
-    checkInTime: '23:00',
+    shift: 'shift3',
+    checkInTime: '22:00',
     checkOutDate: inferredDate,
     checkOutTime: '09:00',
   });
+  // Pre-shift 22:00–23:00 = 01:00 Night; Post-shift 07:00–09:00 = 02:00 Day
   assert.equal(res.isValid, true);
-  assert.equal(res.workedMinutes, 600);
-  assert.equal(res.overtimeMinutes, 120);
-  assert.equal(res.workedFormatted, '10:00');
-  assert.equal(res.overtimeFormatted, '02:00');
+  assert.equal(res.workedFormatted, '11:00');
+  assert.equal(res.overtimeFormatted, '03:00');
+  assert.equal(res.dayOvertimeFormatted, '02:00');
+  assert.equal(res.nightOvertimeFormatted, '01:00');
 });
 
-test('5. تسجيل حضور وانصراف في تاريخين مختلفين حتى لو عبر نهاية الشهر أو السنة', () => {
-  const res = calculateEntryDuration({
+test('8. حدود 06:00 و 18:00 الدقيقة (06:00 نهاري، 18:00 ليلي) وعبور نهاية الشهر', () => {
+  const dawnBoundary = classifyIntervalDayNightMinutes(
+    toEpochMinutes('2026-11-18', '05:59'),
+    toEpochMinutes('2026-11-18', '06:01')
+  );
+  assert.equal(dawnBoundary.nightMinutes, 1); // 05:59 -> 06:00
+  assert.equal(dawnBoundary.dayMinutes, 1); // 06:00 -> 06:01
+
+  const duskBoundary = classifyIntervalDayNightMinutes(
+    toEpochMinutes('2026-11-18', '17:59'),
+    toEpochMinutes('2026-11-18', '18:01')
+  );
+  assert.equal(duskBoundary.dayMinutes, 1); // 17:59 -> 18:00
+  assert.equal(duskBoundary.nightMinutes, 1); // 18:00 -> 18:01
+
+  // Cross-month shift3 (Nov 30 23:00 -> Dec 01 07:45)
+  const crossMonth = calculateEntryDuration({
     workDate: '2026-11-30',
+    shift: 'shift3',
     checkInTime: '23:00',
     checkOutDate: '2026-12-01',
     checkOutTime: '07:45',
   });
-  assert.equal(res.isValid, true);
-  assert.equal(res.workedMinutes, 525);
-  assert.equal(res.overtimeMinutes, 45);
-  assert.equal(res.workedFormatted, '08:45');
-  assert.equal(res.overtimeFormatted, '00:45');
+  assert.equal(crossMonth.workedFormatted, '08:45');
+  assert.equal(crossMonth.overtimeFormatted, '00:45');
+  assert.equal(crossMonth.dayOvertimeFormatted, '00:45');
+  assert.equal(crossMonth.nightOvertimeFormatted, '00:00');
 });
 
-test('6. تعديل وقت الحضور يعيد حساب الساعات والأوفر تايم بدقة', () => {
+test('9. تعديل وقت الحضور أو الانصراف أو الوردية يعيد الحساب وتصنيف النهاري/الليلي فورًا', () => {
   let entries: WorkEntry[] = [];
-  const created = createWorkEntry(entries, {
+  entries = createWorkEntry(entries, {
     workDate: '2026-11-10',
     shift: 'shift1',
     checkInTime: '07:00',
     checkOutDate: '2026-11-10',
     checkOutTime: '15:00',
-  });
-  assert.equal(created.ok, true);
-  entries = created.entries;
+  }).entries;
 
-  const updated = updateWorkEntry(entries, '2026-11-10', { checkInTime: '06:00' });
-  assert.equal(updated.ok, true);
-  const calc = calculateEntryDuration(updated.savedEntry!);
-  assert.equal(calc.workedFormatted, '09:00');
-  assert.equal(calc.overtimeFormatted, '01:00');
-});
-
-test('7. تعديل وقت الانصراف ورفض وقت انصراف قبل أو مساوٍ للحضور', () => {
-  const created = createWorkEntry([], {
-    workDate: '2026-11-11',
-    shift: 'shift2',
-    checkInTime: '15:00',
-    checkOutDate: '2026-11-11',
-    checkOutTime: '23:00',
-  });
-  assert.equal(created.ok, true);
-
-  const invalidUpdate = updateWorkEntry(created.entries, '2026-11-11', {
-    checkOutDate: '2026-11-11',
-    checkOutTime: '14:30',
+  const invalidUpdate = updateWorkEntry(entries, '2026-11-10', {
+    checkOutTime: '06:30',
   });
   assert.equal(invalidUpdate.ok, false);
 
-  const validUpdate = updateWorkEntry(created.entries, '2026-11-11', {
-    checkOutDate: '2026-11-12',
-    checkOutTime: '00:30',
+  const updated = updateWorkEntry(entries, '2026-11-10', {
+    checkInTime: '05:30',
+    checkOutTime: '19:30',
   });
-  assert.equal(validUpdate.ok, true);
-  const calc = calculateEntryDuration(validUpdate.savedEntry!);
-  assert.equal(calc.workedFormatted, '09:30');
-  assert.equal(calc.overtimeFormatted, '01:30');
+  assert.equal(updated.ok, true);
+  const calc = calculateEntryDuration(updated.savedEntry!);
+  // Pre: 05:30–06:00 (00:30 night) + 06:00–07:00 (01:00 day)
+  // Post: 15:00–18:00 (03:00 day) + 18:00–19:30 (01:30 night)
+  // Totals: day 04:00 (240m), night 02:00 (120m), total OT 06:00
+  assert.equal(calc.dayOvertimeFormatted, '04:00');
+  assert.equal(calc.nightOvertimeFormatted, '02:00');
+  assert.equal(calc.overtimeFormatted, '06:00');
 });
 
-test('8. حذف سجل وإعادة حساب الإجماليات', () => {
+test('10. حذف سجل يعيد حساب إجماليات الساعات النهارية والليلية للشهر', () => {
   let entries: WorkEntry[] = [];
   entries = createWorkEntry(entries, {
     workDate: '2026-11-01',
     shift: 'shift1',
     checkInTime: '07:00',
     checkOutDate: '2026-11-01',
-    checkOutTime: '17:00',
+    checkOutTime: '19:00', // 3h day + 1h night OT
   }).entries;
   entries = createWorkEntry(entries, {
     workDate: '2026-11-02',
     shift: 'shift1',
-    checkInTime: '07:00',
+    checkInTime: '06:00',
     checkOutDate: '2026-11-02',
-    checkOutTime: '16:00',
+    checkOutTime: '16:00', // 2h day OT
   }).entries;
 
-  assert.equal(calculateMonthlySummary(entries, '2026-11').totalWorkedFormatted, '19:00');
-  assert.equal(calculateMonthlySummary(entries, '2026-11').totalOvertimeFormatted, '03:00');
+  const beforeDelete = calculateMonthlySummary(entries, '2026-11');
+  assert.equal(beforeDelete.totalOvertimeFormatted, '06:00');
+  assert.equal(beforeDelete.totalDayOvertimeFormatted, '05:00');
+  assert.equal(beforeDelete.totalNightOvertimeFormatted, '01:00');
 
   entries = deleteWorkEntry(entries, '2026-11-01');
   const afterDelete = calculateMonthlySummary(entries, '2026-11');
   assert.equal(afterDelete.completedDaysCount, 1);
-  assert.equal(afterDelete.totalWorkedFormatted, '09:00');
-  assert.equal(afterDelete.totalOvertimeFormatted, '01:00');
+  assert.equal(afterDelete.totalOvertimeFormatted, '02:00');
+  assert.equal(afterDelete.totalDayOvertimeFormatted, '02:00');
+  assert.equal(afterDelete.totalNightOvertimeFormatted, '00:00');
 });
 
-test('9 و 10. تجميع إجماليات الشهر والانتقال لشهر جديد يبدأ من 00:00 مع حفظ الشهور السابقة', () => {
+test('11. التسعير المالي للأوفر تايم (×1.35 نهاري و ×1.70 ليلي) وحساب الدقائق بدقة بدون تقريب خاطئ', () => {
   let entries: WorkEntry[] = [];
   entries = createWorkEntry(entries, {
-    workDate: '2026-10-28',
+    workDate: '2026-11-05',
     shift: 'shift1',
-    checkInTime: '07:00',
-    checkOutDate: '2026-10-28',
-    checkOutTime: '17:00', // 10h, 2h OT
-  }).entries;
-  entries = createWorkEntry(entries, {
-    workDate: '2026-10-29',
-    shift: 'shift1',
-    checkInTime: '07:00',
-    checkOutDate: '2026-10-29',
-    checkOutTime: '15:00', // 8h, 0h OT
-  }).entries;
-  entries = createWorkEntry(entries, {
-    workDate: '2026-11-01',
-    shift: 'shift3',
-    checkInTime: '23:00',
-    checkOutDate: '2026-11-02',
-    checkOutTime: '08:00', // 9h, 1h OT
+    checkInTime: '06:30', // 00:30 day OT
+    checkOutDate: '2026-11-05',
+    checkOutTime: '18:30', // 15:00–18:00 (3h day) + 18:00–18:30 (00:30 night)
   }).entries;
 
-  const oct = calculateMonthlySummary(entries, '2026-10');
-  assert.equal(oct.totalWorkedFormatted, '18:00');
-  assert.equal(oct.totalOvertimeFormatted, '02:00');
-  assert.equal(oct.completedDaysCount, 2);
-  assert.equal(oct.averageDailyFormatted, '09:00');
+  const summary = calculateMonthlySummary(entries, '2026-11');
+  assert.equal(summary.totalDayOvertimeMinutes, 210); // 3.5 hours
+  assert.equal(summary.totalNightOvertimeMinutes, 30); // 0.5 hours
 
-  const nov = calculateMonthlySummary(entries, '2026-11');
-  assert.equal(nov.totalWorkedFormatted, '09:00');
-  assert.equal(nov.totalOvertimeFormatted, '01:00');
+  // Base rate 100 EGP:
+  // Day = 3.5 * 100 * 1.35 = 472.50 EGP
+  // Night = 0.5 * 100 * 1.70 = 85.00 EGP
+  // Total = 557.50 EGP
+  const fin = calculateMonthlyFinancials(summary, 100);
+  assert.equal(fin.hasRate, true);
+  assert.equal(fin.dayHourlyRate, 135);
+  assert.equal(fin.nightHourlyRate, 170);
+  assert.equal(fin.dayOvertimeAmount, 472.5);
+  assert.equal(fin.nightOvertimeAmount, 85);
+  assert.equal(fin.totalOvertimeAmount, 557.5);
 
-  const dec = calculateMonthlySummary(entries, '2026-12');
-  assert.equal(dec.totalWorkedFormatted, '00:00');
-  assert.equal(dec.totalOvertimeFormatted, '00:00');
-  assert.equal(dec.completedDaysCount, 0);
+  // Decimal hourly rate 55.5 EGP:
+  // Day = (210/60)*55.5*1.35 = 262.2375 -> 262.24
+  // Night = (30/60)*55.5*1.70 = 47.175 -> 47.18
+  // Total = 309.42
+  const finDecimal = calculateMonthlyFinancials(summary, 55.5);
+  assert.equal(finDecimal.dayOvertimeAmount, 262.24);
+  assert.equal(finDecimal.nightOvertimeAmount, 47.18);
+  assert.equal(finDecimal.totalOvertimeAmount, 309.42);
 });
 
-test('11. منع تكرار تسجيل نفس التاريخ عند الإضافة وعند تعديل التاريخ', () => {
+test('12. عدم إدخال سعر ساعة للشهر يُرجع حالة غير محدد بدون أرقام مالية مضللة', () => {
+  const summary = calculateMonthlySummary([], '2026-11');
+  for (const unsetRate of [undefined, null, 0, -25, NaN]) {
+    const fin = calculateMonthlyFinancials(
+      { ...summary, totalDayOvertimeMinutes: 120, totalNightOvertimeMinutes: 60 },
+      unsetRate
+    );
+    assert.equal(fin.hasRate, false);
+    assert.equal(fin.baseHourlyRate, null);
+    assert.equal(fin.dayOvertimeAmount, 0);
+    assert.equal(fin.nightOvertimeAmount, 0);
+    assert.equal(fin.totalOvertimeAmount, 0);
+  }
+});
+
+test('13. استقلال سعر الساعة لكل شهر وحفظه واستعادته تلقائيًا بدون التأثير على باقي الشهور', () => {
+  const storage = createMemoryStorage();
+  let entries: WorkEntry[] = [];
+  entries = createWorkEntry(entries, {
+    workDate: '2026-11-10',
+    shift: 'shift1',
+    checkInTime: '07:00',
+    checkOutDate: '2026-11-10',
+    checkOutTime: '17:00', // 2h day OT
+  }).entries;
+  entries = createWorkEntry(entries, {
+    workDate: '2026-12-10',
+    shift: 'shift1',
+    checkInTime: '07:00',
+    checkOutDate: '2026-12-10',
+    checkOutTime: '17:00', // 2h day OT
+  }).entries;
+
+  const saved = saveAppData(
+    {
+      version: 2,
+      selectedShift: 'shift1',
+      entries,
+      monthlyHourlyRates: {
+        '2026-11': 50,
+        '2026-12': 55,
+        '2027-01': 60,
+      },
+    },
+    storage
+  );
+  assert.equal(saved, true);
+
+  const restored = loadAppData(storage);
+  assert.equal(restored.monthlyHourlyRates['2026-11'], 50);
+  assert.equal(restored.monthlyHourlyRates['2026-12'], 55);
+  assert.equal(restored.monthlyHourlyRates['2027-01'], 60);
+
+  const novSummary = calculateMonthlySummary(restored.entries, '2026-11');
+  const decSummary = calculateMonthlySummary(restored.entries, '2026-12');
+
+  const novFin = calculateMonthlyFinancials(novSummary, restored.monthlyHourlyRates['2026-11']);
+  const decFin = calculateMonthlyFinancials(decSummary, restored.monthlyHourlyRates['2026-12']);
+
+  assert.equal(novFin.totalOvertimeAmount, 135); // 2 * 50 * 1.35
+  assert.equal(decFin.totalOvertimeAmount, 148.5); // 2 * 55 * 1.35
+
+  // Updating December rate does not change November
+  const updatedStorage: typeof restored = {
+    ...restored,
+    monthlyHourlyRates: { ...restored.monthlyHourlyRates, '2026-12': 70 },
+  };
+  saveAppData(updatedStorage, storage);
+  const reloaded = loadAppData(storage);
+  assert.equal(reloaded.monthlyHourlyRates['2026-11'], 50);
+  assert.equal(reloaded.monthlyHourlyRates['2026-12'], 70);
+});
+
+test('14. منع تكرار تسجيل نفس التاريخ عند الإضافة وعند تعديل التاريخ', () => {
   let entries: WorkEntry[] = [];
   entries = createWorkEntry(entries, {
     workDate: '2026-11-15',
@@ -253,72 +403,89 @@ test('11. منع تكرار تسجيل نفس التاريخ عند الإضاف
   assert.equal(dupUpdate.ok, false);
 });
 
-test('12. حفظ واستعادة البيانات والوردية المختارة والنسخ الاحتياطي والترحيل الآمن', () => {
+test('15. الترحيل الآمن من الإصدار v1 إلى v2 يحافظ على السجلات القديمة والوردية بدون فقدان', () => {
   const storage = createMemoryStorage();
-  const created = createWorkEntry([], {
-    workDate: '2026-11-18',
-    shift: 'shift3',
-    checkInTime: '23:00',
-    checkOutDate: null, // تسجيل غير مكتمل عند غلق التطبيق
-    checkOutTime: null,
-  });
-
-  const saved = saveAppData(
-    {
+  // Simulate legacy v1 localStorage payload without monthlyHourlyRates
+  storage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
       version: 1,
       selectedShift: 'shift3',
-      entries: created.entries,
-    },
-    storage
+      entries: [
+        {
+          id: '2026-11-05',
+          workDate: '2026-11-05',
+          shift: 'shift2',
+          checkInTime: '15:00',
+          checkOutDate: '2026-11-05',
+          checkOutTime: '23:30',
+          createdAt: '2026-11-05T13:00:00.000Z',
+          updatedAt: '2026-11-05T21:30:00.000Z',
+        },
+        {
+          id: '2026-11-06',
+          workDate: '2026-11-06',
+          shift: 'shift3',
+          checkInTime: '23:00',
+          checkOutDate: null,
+          checkOutTime: null,
+          createdAt: '2026-11-06T21:00:00.000Z',
+          updatedAt: '2026-11-06T21:00:00.000Z',
+        },
+      ],
+    })
   );
-  assert.equal(saved, true);
 
-  // Simulate reopening app
-  const restored = loadAppData(storage);
-  assert.equal(restored.selectedShift, 'shift3');
-  assert.equal(restored.entries.length, 1);
-  assert.equal(restored.entries[0].checkOutTime, null);
+  const migrated = loadAppData(storage);
+  assert.equal(migrated.version, 2);
+  assert.equal(migrated.selectedShift, 'shift3');
+  assert.equal(migrated.entries.length, 2);
+  assert.deepEqual(migrated.monthlyHourlyRates, {});
 
-  // Backup export & import merge/replace
-  const backupJson = JSON.stringify(createBackupPayload(restored));
-  const parsed = parseBackupJson(backupJson);
-  assert.equal(parsed.ok, true);
-  assert.equal(parsed.entryCount, 1);
+  // Verify old v1 entries now compute day/night OT dynamically
+  const nov5 = migrated.entries.find((e) => e.workDate === '2026-11-05')!;
+  const calc = calculateEntryDuration(nov5);
+  assert.equal(calc.overtimeFormatted, '00:30');
+  assert.equal(calc.nightOvertimeFormatted, '00:30');
+  assert.equal(calc.dayOvertimeFormatted, '00:00');
+});
 
-  const extraEntry = createWorkEntry([], {
-    workDate: '2026-11-19',
+test('16. النسخ الاحتياطي JSON واستعادته بالدمج أو الاستبدال يشمل أسعار الساعات الشهرية', () => {
+  const created = createWorkEntry([], {
+    workDate: '2026-11-18',
     shift: 'shift1',
-    checkInTime: '07:00',
-    checkOutDate: '2026-11-19',
-    checkOutTime: '15:00',
-  }).entries[0];
-
-  const merged = mergeBackupData(
-    { ...restored, entries: [extraEntry] },
-    parsed.data!,
-    'merge'
-  );
-  assert.equal(merged.entries.length, 2);
-
-  // Reject malformed backup JSON
-  const badBackup = parseBackupJson('{invalid json');
-  assert.equal(badBackup.ok, false);
-
-  // Safe migration preserves older entries and formats HH:MM properly
-  const migrated = migrateStorageData({
-    version: 0,
-    selectedShift: 'invalid_shift',
-    entries: [
-      {
-        workDate: '2026-11-05',
-        shift: 'shift2',
-        checkInTime: '15:00',
-        checkOutDate: '2026-11-05',
-        checkOutTime: '23:30',
-      },
-    ],
+    checkInTime: '06:00',
+    checkOutDate: '2026-11-18',
+    checkOutTime: '19:00',
   });
-  assert.equal(migrated.selectedShift, 'shift1');
-  assert.equal(migrated.entries.length, 1);
+
+  const payload = createBackupPayload({
+    version: 2,
+    selectedShift: 'shift2',
+    entries: created.entries,
+    monthlyHourlyRates: { '2026-11': 75 },
+  });
+
+  const parsed = parseBackupJson(JSON.stringify(payload));
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.data?.monthlyHourlyRates['2026-11'], 75);
+
+  const currentData = migrateStorageData({
+    version: 2,
+    selectedShift: 'shift1',
+    entries: [],
+    monthlyHourlyRates: { '2026-10': 60, '2026-11': 50 },
+  });
+
+  // Merge preserves current month rate while importing missing months
+  const merged = mergeBackupData(currentData, parsed.data!, 'merge');
+  assert.equal(merged.entries.length, 1);
+  assert.equal(merged.monthlyHourlyRates['2026-10'], 60);
+  assert.equal(merged.monthlyHourlyRates['2026-11'], 50);
+
+  // Replace takes incoming rates
+  const replaced = mergeBackupData(currentData, parsed.data!, 'replace');
+  assert.equal(replaced.monthlyHourlyRates['2026-11'], 75);
+  assert.equal(replaced.monthlyHourlyRates['2026-10'], undefined);
   assert.equal(formatMinutesToHHMM(1000), '16:40');
 });

@@ -1,9 +1,10 @@
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
-import { AppStorageData, MonthlySummary, WorkEntry } from '../types/work';
+import { AppStorageData, MonthlyFinancialSummary, MonthlySummary, WorkEntry } from '../types/work';
 import {
   calculateEntryDuration,
   formatArabicDate,
+  formatEgpAmount,
   formatMonthLabel,
   getMonthKey,
   SHIFTS,
@@ -28,7 +29,8 @@ export function downloadJsonBackup(data: AppStorageData, todayStr: string): void
 export function exportMonthlyExcel(
   entries: WorkEntry[],
   monthKey: string,
-  summary: MonthlySummary
+  summary: MonthlySummary,
+  financials?: MonthlyFinancialSummary
 ): void {
   const monthEntries = entries
     .filter((e) => getMonthKey(e.workDate) === monthKey)
@@ -38,7 +40,26 @@ export function exportMonthlyExcel(
     [`تقرير ساعات الشغل والأوفر تايم — ${formatMonthLabel(monthKey)}`],
     [],
     ['إجمالي ساعات الشغل', summary.totalWorkedFormatted, 'إجمالي الأوفر تايم', summary.totalOvertimeFormatted],
+    ['الساعات النهارية (×1.35)', summary.totalDayOvertimeFormatted, 'الساعات الليلية (×1.70)', summary.totalNightOvertimeFormatted],
     ['أيام الشغل المكتملة', summary.completedDaysCount, 'متوسط الساعات اليومي', summary.averageDailyFormatted],
+  ];
+
+  if (financials?.hasRate && financials.baseHourlyRate !== null) {
+    rows.push([
+      'سعر الساعة الأساسي (ج.م)',
+      formatEgpAmount(financials.baseHourlyRate),
+      'إجمالي مستحقات الأوفر تايم (ج.م)',
+      formatEgpAmount(financials.totalOvertimeAmount),
+    ]);
+    rows.push([
+      'قيمة الأوفر تايم النهاري (ج.م)',
+      formatEgpAmount(financials.dayOvertimeAmount),
+      'قيمة الأوفر تايم الليلي (ج.م)',
+      formatEgpAmount(financials.nightOvertimeAmount),
+    ]);
+  }
+
+  rows.push(
     [],
     [
       'التاريخ',
@@ -48,10 +69,12 @@ export function exportMonthlyExcel(
       'تاريخ الانصراف',
       'وقت الانصراف',
       'ساعات الشغل',
-      'الأوفر تايم',
+      'إجمالي الأوفر تايم',
+      'أوفر تايم نهاري',
+      'أوفر تايم ليلي',
       'الحالة',
-    ],
-  ];
+    ]
+  );
 
   for (const entry of monthEntries) {
     const calc = calculateEntryDuration(entry);
@@ -66,6 +89,8 @@ export function exportMonthlyExcel(
       entry.checkOutTime ?? '—',
       calc.isComplete && calc.isValid ? calc.workedFormatted : '—',
       calc.isComplete && calc.isValid ? calc.overtimeFormatted : '—',
+      calc.isComplete && calc.isValid ? calc.dayOvertimeFormatted : '—',
+      calc.isComplete && calc.isValid ? calc.nightOvertimeFormatted : '—',
       calc.isComplete ? 'مكتمل' : 'لسه مسجلتش الانصراف',
     ]);
   }
@@ -80,7 +105,9 @@ export function exportMonthlyExcel(
     { wch: 14 },
     { wch: 13 },
     { wch: 13 },
-    { wch: 13 },
+    { wch: 15 },
+    { wch: 15 },
+    { wch: 15 },
     { wch: 22 },
   ];
 
@@ -114,7 +141,8 @@ function drawRoundedRect(
 export async function exportMonthlyPdf(
   entries: WorkEntry[],
   monthKey: string,
-  summary: MonthlySummary
+  summary: MonthlySummary,
+  financials?: MonthlyFinancialSummary
 ): Promise<void> {
   if (document.fonts?.ready) {
     await document.fonts.ready;
@@ -129,7 +157,7 @@ export async function exportMonthlyPdf(
   const marginX = 64;
   const contentWidth = pageWidth - marginX * 2;
   const rowHeight = 52;
-  const firstPageRows = 20;
+  const firstPageRows = financials?.hasRate ? 17 : 19;
   const nextPageRows = 26;
 
   // Split entries into pages
@@ -185,19 +213,20 @@ export async function exportMonthlyPdf(
 
     // Summary boxes only on page 1
     if (pageIndex === 0) {
-      const cardGap = 16;
-      const cardW = (contentWidth - cardGap * 3) / 4;
+      const cardGap = 14;
+      const cardW = (contentWidth - cardGap * 4) / 5;
       const cards = [
-        { label: 'إجمالي ساعات الشغل', value: summary.totalWorkedFormatted, accent: '#0F766E', bg: '#F0FDFA', border: '#99F6E4' },
+        { label: 'ساعات الشغل', value: summary.totalWorkedFormatted, accent: '#0F766E', bg: '#F0FDFA', border: '#99F6E4' },
         { label: 'إجمالي الأوفر تايم', value: summary.totalOvertimeFormatted, accent: '#B45309', bg: '#FFFBEB', border: '#FDE68A' },
-        { label: 'أيام الشغل المكتملة', value: String(summary.completedDaysCount), accent: '#0F172A', bg: '#F8FAFC', border: '#E2E8F0' },
-        { label: 'المتوسط اليومي', value: summary.averageDailyFormatted, accent: '#0F172A', bg: '#F8FAFC', border: '#E2E8F0' },
+        { label: 'أوفر تايم نهاري', value: summary.totalDayOvertimeFormatted, accent: '#C2410C', bg: '#FFF7ED', border: '#FED7AA' },
+        { label: 'أوفر تايم ليلي', value: summary.totalNightOvertimeFormatted, accent: '#3730A3', bg: '#EEF2FF', border: '#C7D2FE' },
+        { label: 'أيام الشغل', value: String(summary.completedDaysCount), accent: '#0F172A', bg: '#F8FAFC', border: '#E2E8F0' },
       ];
 
       cards.forEach((card, idx) => {
         const x = pageWidth - marginX - (idx + 1) * cardW - idx * cardGap;
         ctx.fillStyle = card.bg;
-        drawRoundedRect(ctx, x, cursorY, cardW, 96, 12);
+        drawRoundedRect(ctx, x, cursorY, cardW, 92, 12);
         ctx.fill();
         ctx.strokeStyle = card.border;
         ctx.lineWidth = 2;
@@ -205,26 +234,58 @@ export async function exportMonthlyPdf(
 
         ctx.textAlign = 'right';
         ctx.fillStyle = '#475569';
-        ctx.font = '600 16px "IBM Plex Sans Arabic", sans-serif';
-        ctx.fillText(card.label, x + cardW - 18, cursorY + 30);
+        ctx.font = '600 15px "IBM Plex Sans Arabic", sans-serif';
+        ctx.fillText(card.label, x + cardW - 14, cursorY + 28);
 
         ctx.fillStyle = card.accent;
-        ctx.font = '700 30px "Cairo", sans-serif';
-        ctx.fillText(card.value, x + cardW - 18, cursorY + 66);
+        ctx.font = '700 28px "Cairo", sans-serif';
+        ctx.fillText(card.value, x + cardW - 14, cursorY + 62);
       });
 
-      cursorY += 124;
+      cursorY += 110;
+
+      if (financials?.hasRate && financials.baseHourlyRate !== null) {
+        ctx.fillStyle = '#F0FDFA';
+        drawRoundedRect(ctx, marginX, cursorY, contentWidth, 68, 12);
+        ctx.fill();
+        ctx.strokeStyle = '#99F6E4';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.textAlign = 'right';
+        ctx.fillStyle = '#115E59';
+        ctx.font = '700 17px "Cairo", "IBM Plex Sans Arabic", sans-serif';
+        ctx.fillText(
+          `سعر الساعة: ${formatEgpAmount(financials.baseHourlyRate)} ج.م   |   النهاري (×1.35): ${formatEgpAmount(financials.dayOvertimeAmount)} ج.م   |   الليلي (×1.70): ${formatEgpAmount(financials.nightOvertimeAmount)} ج.م`,
+          pageWidth - marginX - 20,
+          cursorY + 34
+        );
+
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#0F766E';
+        ctx.font = '800 20px "Cairo", sans-serif';
+        ctx.fillText(
+          `الإجمالي: ${formatEgpAmount(financials.totalOvertimeAmount)} ج.م`,
+          marginX + 20,
+          cursorY + 34
+        );
+
+        cursorY += 86;
+      } else {
+        cursorY += 12;
+      }
     }
 
     // Table columns (Right to Left)
     const cols = [
-      { title: 'التاريخ', width: 200 },
-      { title: 'الوردية', width: 170 },
-      { title: 'الحضور', width: 130 },
-      { title: 'الانصراف', width: 200 },
-      { title: 'ساعات الشغل', width: 150 },
-      { title: 'الأوفر تايم', width: 150 },
-      { title: 'الحالة', width: contentWidth - 1000 },
+      { title: 'التاريخ', width: 170 },
+      { title: 'الوردية', width: 150 },
+      { title: 'الحضور', width: 110 },
+      { title: 'الانصراف', width: 170 },
+      { title: 'الشغل', width: 115 },
+      { title: 'أوفر تايم', width: 120 },
+      { title: 'نهاري / ليلي', width: 155 },
+      { title: 'الحالة', width: contentWidth - 990 },
     ];
 
     // Table Header
@@ -233,11 +294,11 @@ export async function exportMonthlyPdf(
     ctx.fill();
 
     ctx.fillStyle = '#334155';
-    ctx.font = '700 17px "Cairo", "IBM Plex Sans Arabic", sans-serif';
+    ctx.font = '700 16px "Cairo", "IBM Plex Sans Arabic", sans-serif';
     let colRight = pageWidth - marginX;
     cols.forEach((col) => {
       ctx.textAlign = 'right';
-      ctx.fillText(col.title, colRight - 14, cursorY + 24);
+      ctx.fillText(col.title, colRight - 12, cursorY + 24);
       colRight -= col.width;
     });
 
@@ -276,6 +337,9 @@ export async function exportMonthlyPdf(
           checkOutLabel,
           calc.isComplete && calc.isValid ? calc.workedFormatted : '—',
           calc.isComplete && calc.isValid ? calc.overtimeFormatted : '—',
+          calc.isComplete && calc.isValid
+            ? `${calc.dayOvertimeFormatted} / ${calc.nightOvertimeFormatted}`
+            : '—',
           calc.isComplete ? 'مكتمل' : 'ناقص انصراف',
         ];
 
@@ -284,15 +348,15 @@ export async function exportMonthlyPdf(
           ctx.textAlign = 'right';
           if (cIdx === 5 && calc.overtimeMinutes > 0) {
             ctx.fillStyle = '#B45309';
-            ctx.font = '700 18px "Cairo", sans-serif';
-          } else if (cIdx === 6 && !calc.isComplete) {
+            ctx.font = '700 17px "Cairo", sans-serif';
+          } else if (cIdx === 7 && !calc.isComplete) {
             ctx.fillStyle = '#C2410C';
-            ctx.font = '600 16px "IBM Plex Sans Arabic", sans-serif';
+            ctx.font = '600 15px "IBM Plex Sans Arabic", sans-serif';
           } else {
             ctx.fillStyle = '#0F172A';
-            ctx.font = '500 17px "IBM Plex Sans Arabic", sans-serif';
+            ctx.font = '500 16px "IBM Plex Sans Arabic", sans-serif';
           }
-          ctx.fillText(values[cIdx], cellRight - 14, cursorY + rowHeight / 2);
+          ctx.fillText(values[cIdx], cellRight - 12, cursorY + rowHeight / 2);
           cellRight -= col.width;
         });
 

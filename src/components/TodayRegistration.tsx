@@ -646,6 +646,16 @@ export const TodayRegistration: React.FC<TodayRegistrationProps> = ({
                   >
                     {duration?.isComplete && duration.isValid ? duration.overtimeFormatted : '00:00'}
                   </p>
+                  {duration?.isComplete && duration.isValid && duration.overtimeMinutes > 0 && (
+                    <p
+                      data-testid="today-overtime-breakdown"
+                      className="mt-1 text-[11px] font-medium text-amber-900/90"
+                    >
+                      نهاري <span className="tabular-time font-bold">{duration.dayOvertimeFormatted}</span>
+                      {' · '}
+                      ليلي <span className="tabular-time font-bold">{duration.nightOvertimeFormatted}</span>
+                    </p>
+                  )}
                 </div>
               </div>
 

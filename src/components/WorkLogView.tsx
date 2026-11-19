@@ -86,11 +86,12 @@ export const WorkLogView: React.FC<WorkLogViewProps> = ({
     if (!editingEntry) return null;
     return calculateEntryDuration({
       workDate: editDate,
+      shift: editShift,
       checkInTime: editCheckIn,
       checkOutDate: editCheckOutTime ? editCheckOutDate || editDate : null,
       checkOutTime: editCheckOutTime || null,
     });
-  }, [editingEntry, editDate, editCheckIn, editCheckOutDate, editCheckOutTime]);
+  }, [editingEntry, editDate, editShift, editCheckIn, editCheckOutDate, editCheckOutTime]);
 
   const handleSaveEdit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -401,6 +402,22 @@ export const WorkLogView: React.FC<WorkLogViewProps> = ({
                       {calc.isComplete ? calc.overtimeFormatted : '—'}
                     </dd>
                   </div>
+                  {calc.isComplete && calc.overtimeMinutes > 0 && (
+                    <div className="flex justify-between py-2.5">
+                      <dt className="text-slate-500">تصنيف الأوفر تايم</dt>
+                      <dd className="font-semibold text-slate-800">
+                        نهاري{' '}
+                        <span className="tabular-time text-amber-800">
+                          {calc.dayOvertimeFormatted}
+                        </span>
+                        {' · '}
+                        ليلي{' '}
+                        <span className="tabular-time text-indigo-800">
+                          {calc.nightOvertimeFormatted}
+                        </span>
+                      </dd>
+                    </div>
+                  )}
                   {detailEntry.notes && (
                     <div className="py-2.5">
                       <dt className="text-slate-500">ملاحظات</dt>
@@ -578,15 +595,33 @@ export const WorkLogView: React.FC<WorkLogViewProps> = ({
                   {!editPreview.isValid ? (
                     <p className="font-semibold text-red-700">{editPreview.errorMessage}</p>
                   ) : editPreview.isComplete ? (
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-600">الحساب بعد التعديل:</span>
-                      <span className="font-bold text-slate-900">
-                        شغل <span className="tabular-time">{editPreview.workedFormatted}</span> · أوفر
-                        تايم{' '}
-                        <span className="tabular-time text-amber-700">
-                          {editPreview.overtimeFormatted}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-600">الحساب بعد التعديل:</span>
+                        <span className="font-bold text-slate-900">
+                          شغل <span className="tabular-time">{editPreview.workedFormatted}</span> · أوفر
+                          تايم{' '}
+                          <span className="tabular-time text-amber-700">
+                            {editPreview.overtimeFormatted}
+                          </span>
                         </span>
-                      </span>
+                      </div>
+                      {editPreview.overtimeMinutes > 0 && (
+                        <div className="flex items-center justify-end gap-3 text-[11px] font-medium text-slate-600">
+                          <span>
+                            نهاري{' '}
+                            <span className="tabular-time font-bold text-amber-800">
+                              {editPreview.dayOvertimeFormatted}
+                            </span>
+                          </span>
+                          <span>
+                            ليلي{' '}
+                            <span className="tabular-time font-bold text-indigo-800">
+                              {editPreview.nightOvertimeFormatted}
+                            </span>
+                          </span>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <p className="font-medium text-amber-800">التسجيل ده هيفضل مفتوح بدون انصراف.</p>

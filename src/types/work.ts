@@ -28,28 +28,49 @@ export interface CalculatedEntryDuration {
   errorMessage: string | null;
   workedMinutes: number;
   overtimeMinutes: number;
+  preShiftOvertimeMinutes: number;
+  postShiftOvertimeMinutes: number;
+  dayOvertimeMinutes: number;
+  nightOvertimeMinutes: number;
   regularMinutes: number;
   workedFormatted: string;
   overtimeFormatted: string;
+  dayOvertimeFormatted: string;
+  nightOvertimeFormatted: string;
 }
 
 export interface MonthlySummary {
   monthKey: string; // YYYY-MM
   totalWorkedMinutes: number;
   totalOvertimeMinutes: number;
+  totalDayOvertimeMinutes: number;
+  totalNightOvertimeMinutes: number;
   completedDaysCount: number;
   incompleteDaysCount: number;
   totalEntriesCount: number;
   averageDailyMinutes: number;
   totalWorkedFormatted: string;
   totalOvertimeFormatted: string;
+  totalDayOvertimeFormatted: string;
+  totalNightOvertimeFormatted: string;
   averageDailyFormatted: string;
+}
+
+export interface MonthlyFinancialSummary {
+  hasRate: boolean;
+  baseHourlyRate: number | null;
+  dayHourlyRate: number;
+  nightHourlyRate: number;
+  dayOvertimeAmount: number;
+  nightOvertimeAmount: number;
+  totalOvertimeAmount: number;
 }
 
 export interface AppStorageData {
   version: number;
   selectedShift: ShiftId;
   entries: WorkEntry[];
+  monthlyHourlyRates: Record<string, number>;
 }
 
 export interface BackupPayload {
@@ -58,4 +79,6 @@ export interface BackupPayload {
   exportedAt: string;
   selectedShift: ShiftId;
   entries: WorkEntry[];
+  monthlyHourlyRates?: Record<string, number>;
 }
+

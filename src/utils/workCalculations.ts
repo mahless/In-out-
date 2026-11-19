@@ -1,5 +1,6 @@
 import {
   CalculatedEntryDuration,
+  MonthlyFinancialSummary,
   MonthlySummary,
   ShiftDefinition,
   ShiftId,
@@ -7,6 +8,11 @@ import {
 } from '../types/work';
 
 export const STANDARD_SHIFT_MINUTES = 8 * 60; // 480 minutes = 8 hours
+export const MINUTES_PER_DAY = 24 * 60;
+export const DAY_START_MINUTES = 6 * 60; // 06:00 inclusive
+export const NIGHT_START_MINUTES = 18 * 60; // 18:00 inclusive
+export const DAY_OVERTIME_MULTIPLIER = 1.35;
+export const NIGHT_OVERTIME_MULTIPLIER = 1.7;
 
 export const SHIFTS: Record<ShiftId, ShiftDefinition> = {
   shift1: {
@@ -195,57 +201,112 @@ export function inferCheckOutDate(
       return nowDate;
     }
   }
-  if (SHIFTS[shift].crossesMidnight && checkOutTime < checkInTime) {
+  if (checkOutTime < checkInTime) {
     return addDaysToDate(workDate, 1);
   }
   return workDate;
 }
 
+export function roundCurrency(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+export function formatEgpAmount(amount: number): string {
+  if (!Number.isFinite(amount)) return '0.00';
+  return roundCurrency(amount).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+/**
+ * Classifies an exact [startEpochMin, endEpochMin) interval into Daytime (06:00-18:00)
+ * and Nighttime (18:00-06:00) integer minutes, splitting seamlessly at 06:00 and 18:00 boundaries.
+ */
+export function classifyIntervalDayNightMinutes(
+  startEpochMin: number,
+  endEpochMin: number
+): { dayMinutes: number; nightMinutes: number } {
+  if (
+    !Number.isFinite(startEpochMin) ||
+    !Number.isFinite(endEpochMin) ||
+    endEpochMin <= startEpochMin
+  ) {
+    return { dayMinutes: 0, nightMinutes: 0 };
+  }
+
+  let cursor = startEpochMin;
+  let dayMinutes = 0;
+  let nightMinutes = 0;
+
+  while (cursor < endEpochMin) {
+    const dayIndex = Math.floor(cursor / MINUTES_PER_DAY);
+    const dayBase = dayIndex * MINUTES_PER_DAY;
+    const dayStart = dayBase + DAY_START_MINUTES; // 06:00
+    const nightStart = dayBase + NIGHT_START_MINUTES; // 18:00
+    const nextDayBase = (dayIndex + 1) * MINUTES_PER_DAY; // 24:00
+
+    if (cursor < dayStart) {
+      const segEnd = Math.min(endEpochMin, dayStart);
+      nightMinutes += segEnd - cursor;
+      cursor = segEnd;
+    } else if (cursor < nightStart) {
+      const segEnd = Math.min(endEpochMin, nightStart);
+      dayMinutes += segEnd - cursor;
+      cursor = segEnd;
+    } else {
+      const segEnd = Math.min(endEpochMin, nextDayBase);
+      nightMinutes += segEnd - cursor;
+      cursor = segEnd;
+    }
+  }
+
+  return { dayMinutes, nightMinutes };
+}
+
+function emptyCalculatedDuration(
+  isValid: boolean,
+  errorMessage: string | null
+): CalculatedEntryDuration {
+  return {
+    isComplete: false,
+    isValid,
+    errorMessage,
+    workedMinutes: 0,
+    overtimeMinutes: 0,
+    preShiftOvertimeMinutes: 0,
+    postShiftOvertimeMinutes: 0,
+    dayOvertimeMinutes: 0,
+    nightOvertimeMinutes: 0,
+    regularMinutes: 0,
+    workedFormatted: '00:00',
+    overtimeFormatted: '00:00',
+    dayOvertimeFormatted: '00:00',
+    nightOvertimeFormatted: '00:00',
+  };
+}
+
 /**
  * Pure calculation engine for a single work entry.
- * All math is done in integer minutes with strict validation.
+ * Overtime is determined strictly by shift boundaries (pre-shift + post-shift),
+ * never deducting late arrivals or early departures, and classifies every overtime minute
+ * into Daytime (06:00–18:00) or Nighttime (18:00–06:00).
  */
 export function calculateEntryDuration(
-  entry: Pick<WorkEntry, 'workDate' | 'checkInTime' | 'checkOutDate' | 'checkOutTime'>
+  entry: Pick<WorkEntry, 'workDate' | 'shift' | 'checkInTime' | 'checkOutDate' | 'checkOutTime'>
 ): CalculatedEntryDuration {
   if (!isValidDateString(entry.workDate) || !isValidTimeString(entry.checkInTime)) {
-    return {
-      isComplete: false,
-      isValid: false,
-      errorMessage: 'تاريخ أو وقت الحضور مش مظبوط.',
-      workedMinutes: 0,
-      overtimeMinutes: 0,
-      regularMinutes: 0,
-      workedFormatted: '00:00',
-      overtimeFormatted: '00:00',
-    };
+    return emptyCalculatedDuration(false, 'تاريخ أو وقت الحضور مش مظبوط.');
   }
 
   if (!entry.checkOutTime) {
-    return {
-      isComplete: false,
-      isValid: true,
-      errorMessage: null,
-      workedMinutes: 0,
-      overtimeMinutes: 0,
-      regularMinutes: 0,
-      workedFormatted: '00:00',
-      overtimeFormatted: '00:00',
-    };
+    return emptyCalculatedDuration(true, null);
   }
 
   const effectiveCheckOutDate = entry.checkOutDate || entry.workDate;
   if (!isValidDateString(effectiveCheckOutDate) || !isValidTimeString(entry.checkOutTime)) {
-    return {
-      isComplete: false,
-      isValid: false,
-      errorMessage: 'تاريخ أو وقت الانصراف مش مظبوط.',
-      workedMinutes: 0,
-      overtimeMinutes: 0,
-      regularMinutes: 0,
-      workedFormatted: '00:00',
-      overtimeFormatted: '00:00',
-    };
+    return emptyCalculatedDuration(false, 'تاريخ أو وقت الانصراف مش مظبوط.');
   }
 
   const startMins = toEpochMinutes(entry.workDate, entry.checkInTime);
@@ -253,33 +314,43 @@ export function calculateEntryDuration(
   const diff = endMins - startMins;
 
   if (!Number.isFinite(diff) || diff <= 0) {
-    return {
-      isComplete: false,
-      isValid: false,
-      errorMessage: 'وقت الانصراف مينفعش يكون قبل أو قد وقت الحضور.',
-      workedMinutes: 0,
-      overtimeMinutes: 0,
-      regularMinutes: 0,
-      workedFormatted: '00:00',
-      overtimeFormatted: '00:00',
-    };
+    return emptyCalculatedDuration(false, 'وقت الانصراف مينفعش يكون قبل أو قد وقت الحضور.');
   }
 
   if (diff > 24 * 60) {
-    return {
-      isComplete: false,
-      isValid: false,
-      errorMessage: 'الفرق بين الحضور والانصراف أكتر من 24 ساعة. راجع التاريخ والوقت.',
-      workedMinutes: 0,
-      overtimeMinutes: 0,
-      regularMinutes: 0,
-      workedFormatted: '00:00',
-      overtimeFormatted: '00:00',
-    };
+    return emptyCalculatedDuration(
+      false,
+      'الفرق بين الحضور والانصراف أكتر من 24 ساعة. راجع التاريخ والوقت.'
+    );
   }
 
-  const overtimeMinutes = Math.max(0, diff - STANDARD_SHIFT_MINUTES);
-  const regularMinutes = Math.min(diff, STANDARD_SHIFT_MINUTES);
+  const shiftDef = SHIFTS[entry.shift] ?? SHIFTS.shift1;
+  const shiftStartMins = toEpochMinutes(entry.workDate, shiftDef.defaultStartTime);
+  const shiftEndDate = shiftDef.crossesMidnight
+    ? addDaysToDate(entry.workDate, 1)
+    : entry.workDate;
+  const shiftEndMins = toEpochMinutes(shiftEndDate, shiftDef.defaultEndTime);
+
+  // Pre-shift overtime interval: [startMins, min(endMins, shiftStartMins))
+  const preEnd = Math.min(endMins, shiftStartMins);
+  const preShiftOvertimeMinutes = startMins < preEnd ? preEnd - startMins : 0;
+  const preClassified =
+    preShiftOvertimeMinutes > 0
+      ? classifyIntervalDayNightMinutes(startMins, preEnd)
+      : { dayMinutes: 0, nightMinutes: 0 };
+
+  // Post-shift overtime interval: [max(startMins, shiftEndMins), endMins)
+  const postStart = Math.max(startMins, shiftEndMins);
+  const postShiftOvertimeMinutes = endMins > postStart ? endMins - postStart : 0;
+  const postClassified =
+    postShiftOvertimeMinutes > 0
+      ? classifyIntervalDayNightMinutes(postStart, endMins)
+      : { dayMinutes: 0, nightMinutes: 0 };
+
+  const overtimeMinutes = preShiftOvertimeMinutes + postShiftOvertimeMinutes;
+  const dayOvertimeMinutes = preClassified.dayMinutes + postClassified.dayMinutes;
+  const nightOvertimeMinutes = preClassified.nightMinutes + postClassified.nightMinutes;
+  const regularMinutes = Math.max(0, diff - overtimeMinutes);
 
   return {
     isComplete: true,
@@ -287,9 +358,15 @@ export function calculateEntryDuration(
     errorMessage: null,
     workedMinutes: diff,
     overtimeMinutes,
+    preShiftOvertimeMinutes,
+    postShiftOvertimeMinutes,
+    dayOvertimeMinutes,
+    nightOvertimeMinutes,
     regularMinutes,
     workedFormatted: formatMinutesToHHMM(diff),
     overtimeFormatted: formatMinutesToHHMM(overtimeMinutes),
+    dayOvertimeFormatted: formatMinutesToHHMM(dayOvertimeMinutes),
+    nightOvertimeFormatted: formatMinutesToHHMM(nightOvertimeMinutes),
   };
 }
 
@@ -317,6 +394,8 @@ export function calculateMonthlySummary(
 
   let totalWorkedMinutes = 0;
   let totalOvertimeMinutes = 0;
+  let totalDayOvertimeMinutes = 0;
+  let totalNightOvertimeMinutes = 0;
   let completedDaysCount = 0;
   let incompleteDaysCount = 0;
 
@@ -325,6 +404,8 @@ export function calculateMonthlySummary(
     if (calc.isComplete && calc.isValid) {
       totalWorkedMinutes += calc.workedMinutes;
       totalOvertimeMinutes += calc.overtimeMinutes;
+      totalDayOvertimeMinutes += calc.dayOvertimeMinutes;
+      totalNightOvertimeMinutes += calc.nightOvertimeMinutes;
       completedDaysCount += 1;
     } else {
       incompleteDaysCount += 1;
@@ -338,13 +419,60 @@ export function calculateMonthlySummary(
     monthKey,
     totalWorkedMinutes,
     totalOvertimeMinutes,
+    totalDayOvertimeMinutes,
+    totalNightOvertimeMinutes,
     completedDaysCount,
     incompleteDaysCount,
     totalEntriesCount: monthEntries.length,
     averageDailyMinutes,
     totalWorkedFormatted: formatMinutesToHHMM(totalWorkedMinutes),
     totalOvertimeFormatted: formatMinutesToHHMM(totalOvertimeMinutes),
+    totalDayOvertimeFormatted: formatMinutesToHHMM(totalDayOvertimeMinutes),
+    totalNightOvertimeFormatted: formatMinutesToHHMM(totalNightOvertimeMinutes),
     averageDailyFormatted: formatMinutesToHHMM(averageDailyMinutes),
+  };
+}
+
+/**
+ * Computes financial overtime payout for a month based on its independent base hourly rate.
+ * Day overtime multiplier = 1.35x, Night overtime multiplier = 1.70x.
+ */
+export function calculateMonthlyFinancials(
+  summary: Pick<MonthlySummary, 'totalDayOvertimeMinutes' | 'totalNightOvertimeMinutes'>,
+  baseHourlyRate: number | null | undefined
+): MonthlyFinancialSummary {
+  if (
+    typeof baseHourlyRate !== 'number' ||
+    !Number.isFinite(baseHourlyRate) ||
+    baseHourlyRate <= 0
+  ) {
+    return {
+      hasRate: false,
+      baseHourlyRate: null,
+      dayHourlyRate: 0,
+      nightHourlyRate: 0,
+      dayOvertimeAmount: 0,
+      nightOvertimeAmount: 0,
+      totalOvertimeAmount: 0,
+    };
+  }
+
+  const dayOvertimeAmount = roundCurrency(
+    (summary.totalDayOvertimeMinutes * baseHourlyRate * DAY_OVERTIME_MULTIPLIER) / 60
+  );
+  const nightOvertimeAmount = roundCurrency(
+    (summary.totalNightOvertimeMinutes * baseHourlyRate * NIGHT_OVERTIME_MULTIPLIER) / 60
+  );
+  const totalOvertimeAmount = roundCurrency(dayOvertimeAmount + nightOvertimeAmount);
+
+  return {
+    hasRate: true,
+    baseHourlyRate,
+    dayHourlyRate: roundCurrency(baseHourlyRate * DAY_OVERTIME_MULTIPLIER),
+    nightHourlyRate: roundCurrency(baseHourlyRate * NIGHT_OVERTIME_MULTIPLIER),
+    dayOvertimeAmount,
+    nightOvertimeAmount,
+    totalOvertimeAmount,
   };
 }
 

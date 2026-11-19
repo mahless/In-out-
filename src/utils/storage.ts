@@ -7,9 +7,10 @@ import {
 } from './workCalculations';
 
 export const STORAGE_KEY = 'daftar_elshoghl_data_v1';
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 const VALID_SHIFTS = new Set<ShiftId>(['shift1', 'shift2', 'shift3']);
+const MONTH_KEY_REGEX = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export interface StorageLike {
   getItem(key: string): string | null;
@@ -29,6 +30,7 @@ export function getDefaultStorageData(): AppStorageData {
     version: CURRENT_SCHEMA_VERSION,
     selectedShift: 'shift1',
     entries: [],
+    monthlyHourlyRates: {},
   };
 }
 
@@ -37,6 +39,21 @@ function sanitizeShift(value: unknown): ShiftId {
     return value as ShiftId;
   }
   return 'shift1';
+}
+
+export function sanitizeMonthlyHourlyRates(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {};
+  }
+  const result: Record<string, number> = {};
+  for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (!MONTH_KEY_REGEX.test(key)) continue;
+    const num = typeof val === 'number' ? val : Number(val);
+    if (Number.isFinite(num) && num > 0) {
+      result[key] = Math.round((num + Number.EPSILON) * 100) / 100;
+    }
+  }
+  return result;
 }
 
 function sanitizeEntry(raw: unknown): WorkEntry | null {
@@ -100,6 +117,7 @@ export function migrateStorageData(raw: unknown): AppStorageData {
   const data = raw as Record<string, unknown>;
   const selectedShift = sanitizeShift(data.selectedShift);
   const rawEntries = Array.isArray(data.entries) ? data.entries : [];
+  const monthlyHourlyRates = sanitizeMonthlyHourlyRates(data.monthlyHourlyRates);
 
   const deduped = new Map<string, WorkEntry>();
   for (const item of rawEntries) {
@@ -115,6 +133,7 @@ export function migrateStorageData(raw: unknown): AppStorageData {
     version: CURRENT_SCHEMA_VERSION,
     selectedShift,
     entries: sortEntriesDesc(Array.from(deduped.values())),
+    monthlyHourlyRates,
   };
 }
 
@@ -141,6 +160,7 @@ export function saveAppData(data: AppStorageData, customStorage?: StorageLike): 
       version: CURRENT_SCHEMA_VERSION,
       selectedShift: sanitizeShift(data.selectedShift),
       entries: sortEntriesDesc(data.entries),
+      monthlyHourlyRates: sanitizeMonthlyHourlyRates(data.monthlyHourlyRates),
     };
     storage.setItem(STORAGE_KEY, JSON.stringify(payload));
     return true;
@@ -156,6 +176,7 @@ export function createBackupPayload(data: AppStorageData): BackupPayload {
     exportedAt: new Date().toISOString(),
     selectedShift: data.selectedShift,
     entries: sortEntriesDesc(data.entries),
+    monthlyHourlyRates: sanitizeMonthlyHourlyRates(data.monthlyHourlyRates),
   };
 }
 
@@ -208,6 +229,7 @@ export function mergeBackupData(
       version: CURRENT_SCHEMA_VERSION,
       selectedShift: incoming.selectedShift || current.selectedShift,
       entries: sortEntriesDesc(incoming.entries),
+      monthlyHourlyRates: sanitizeMonthlyHourlyRates(incoming.monthlyHourlyRates),
     };
   }
 
@@ -221,9 +243,15 @@ export function mergeBackupData(
     }
   }
 
+  const mergedRates: Record<string, number> = {
+    ...sanitizeMonthlyHourlyRates(incoming.monthlyHourlyRates),
+    ...sanitizeMonthlyHourlyRates(current.monthlyHourlyRates),
+  };
+
   return {
     version: CURRENT_SCHEMA_VERSION,
     selectedShift: current.selectedShift,
     entries: sortEntriesDesc(Array.from(map.values())),
+    monthlyHourlyRates: mergedRates,
   };
 }

@@ -95,6 +95,21 @@ function AppShell() {
     setAppData((prev) => mergeBackupData(prev, incoming, mode));
   };
 
+  const handleUpdateMonthlyRate = (monthKey: string, rate: number | null) => {
+    setAppData((prev) => {
+      const nextRates = { ...prev.monthlyHourlyRates };
+      if (rate === null || !Number.isFinite(rate) || rate <= 0) {
+        delete nextRates[monthKey];
+      } else {
+        nextRates[monthKey] = Math.round((rate + Number.EPSILON) * 100) / 100;
+      }
+      return {
+        ...prev,
+        monthlyHourlyRates: nextRates,
+      };
+    });
+  };
+
   const handleJumpToRegisterDate = (date: string) => {
     setSelectedDate(date);
     navigateToTab('today');
@@ -201,6 +216,7 @@ function AppShell() {
           <ReportsBackupView
             appData={appData}
             currentMonthKey={currentMonthKey}
+            onUpdateMonthlyRate={handleUpdateMonthlyRate}
             onRestoreBackup={handleRestoreBackup}
           />
         )}

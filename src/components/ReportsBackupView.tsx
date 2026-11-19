@@ -1,23 +1,25 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  Banknote,
   CheckCircle2,
   Download,
   FileSpreadsheet,
   FileText,
+  Moon,
+  Sun,
   Upload,
 } from 'lucide-react';
-import { AppStorageData, WorkEntry } from '../types/work';
+import { AppStorageData } from '../types/work';
 import {
-  calculateEntryDuration,
+  calculateMonthlyFinancials,
   calculateMonthlySummary,
-  formatArabicShortDate,
-  formatEgyptianNumericDate,
+  DAY_OVERTIME_MULTIPLIER,
+  formatEgpAmount,
   formatMonthLabel,
   getAvailableMonths,
   getLocalDateString,
-  getMonthKey,
-  SHIFTS,
+  NIGHT_OVERTIME_MULTIPLIER,
 } from '../utils/workCalculations';
 import { exportMonthlyExcel, exportMonthlyPdf, downloadJsonBackup } from '../utils/exportReports';
 import { parseBackupJson } from '../utils/storage';
@@ -26,12 +28,14 @@ import { useModalBackHandler } from '../hooks/useNavigationHistory';
 interface ReportsBackupViewProps {
   appData: AppStorageData;
   currentMonthKey: string;
+  onUpdateMonthlyRate: (monthKey: string, rate: number | null) => void;
   onRestoreBackup: (incoming: AppStorageData, mode: 'merge' | 'replace') => void;
 }
 
 export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
   appData,
   currentMonthKey,
+  onUpdateMonthlyRate,
   onRestoreBackup,
 }) => {
   const availableMonths = useMemo(
@@ -42,6 +46,20 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  const savedMonthRate = appData.monthlyHourlyRates[selectedMonth];
+  const [rateDraft, setRateDraft] = useState<string>(() =>
+    typeof savedMonthRate === 'number' && savedMonthRate > 0 ? String(savedMonthRate) : ''
+  );
+  const [rateError, setRateError] = useState<string | null>(null);
+
+  // Sync input field whenever user switches months or restores a backup
+  useEffect(() => {
+    setRateDraft(
+      typeof savedMonthRate === 'number' && savedMonthRate > 0 ? String(savedMonthRate) : ''
+    );
+    setRateError(null);
+  }, [selectedMonth, savedMonthRate]);
 
   // Backup restore state
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -63,23 +81,44 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
     [appData.entries, selectedMonth]
   );
 
-  const monthEntries = useMemo(
-    () =>
-      appData.entries
-        .filter((e) => getMonthKey(e.workDate) === selectedMonth)
-        .sort((a, b) => a.workDate.localeCompare(b.workDate)),
-    [appData.entries, selectedMonth]
+  const financials = useMemo(
+    () => calculateMonthlyFinancials(summary, savedMonthRate),
+    [summary, savedMonthRate]
   );
 
+  const handleRateInputChange = (rawValue: string) => {
+    // Allow digits and a single decimal separator (normalize Arabic/Persian digits if needed)
+    const normalized = rawValue
+      .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+      .replace(',', '.');
+
+    setRateDraft(normalized);
+
+    if (normalized.trim() === '') {
+      setRateError(null);
+      onUpdateMonthlyRate(selectedMonth, null);
+      return;
+    }
+
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setRateError('اكتب سعر ساعة صحيح أكبر من صفر (مثلاً: 50 أو 62.5).');
+      return;
+    }
+
+    setRateError(null);
+    onUpdateMonthlyRate(selectedMonth, parsed);
+  };
+
   const handleExportExcel = () => {
-    exportMonthlyExcel(appData.entries, selectedMonth, summary);
+    exportMonthlyExcel(appData.entries, selectedMonth, summary, financials);
     setExportStatus(`تم تحميل ملف Excel لشهر ${formatMonthLabel(selectedMonth)}`);
   };
 
   const handleExportPdf = async () => {
     setIsGeneratingPdf(true);
     try {
-      await exportMonthlyPdf(appData.entries, selectedMonth, summary);
+      await exportMonthlyPdf(appData.entries, selectedMonth, summary, financials);
       setExportStatus(`تم تحميل ملف PDF لشهر ${formatMonthLabel(selectedMonth)}`);
     } finally {
       setIsGeneratingPdf(false);
@@ -142,7 +181,8 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
               التقارير الشهرية
             </h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              نفس الحسابات الدقيقة بتاعة الشاشة الرئيسية لأي شهر تختاره
+              ملخص ساعات الشغل والأوفر تايم النهاري والليلي وحساب المستحقات لشهر{' '}
+              {formatMonthLabel(selectedMonth)}
             </p>
           </div>
 
@@ -190,18 +230,8 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
           </p>
         )}
 
-        {/* 4 Summary Metrics */}
-        <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
-            <p className="text-xs font-medium text-slate-600">إجمالي ساعات الشغل</p>
-            <p
-              data-testid="report-total-worked"
-              className="tabular-time font-display mt-1 text-2xl font-extrabold text-slate-900"
-            >
-              {summary.totalWorkedFormatted}
-            </p>
-          </div>
-
+        {/* Base Summary Metrics */}
+        <div className="mt-5 grid grid-cols-2 gap-3">
           <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5">
             <p className="text-xs font-medium text-amber-900">إجمالي الأوفر تايم</p>
             <p
@@ -226,141 +256,165 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
               </p>
             )}
           </div>
+        </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
-            <p className="text-xs font-medium text-slate-600">متوسط الساعات اليومي</p>
+        {/* New Day / Night Overtime Classification KPI Cards */}
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="rounded-xl border border-orange-200 bg-orange-50/60 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+              <div className="flex items-center gap-2">
+                <Sun className="h-4 w-4 text-orange-600 shrink-0" aria-hidden="true" />
+                <p className="text-xs font-bold text-orange-950">إجمالي الساعات النهارية</p>
+              </div>
+              <span className="text-[11px] font-semibold text-orange-800">
+                06:00 ص – 06:00 م (× {DAY_OVERTIME_MULTIPLIER})
+              </span>
+            </div>
             <p
-              data-testid="report-avg-daily"
-              className="tabular-time font-display mt-1 text-2xl font-extrabold text-slate-900"
+              data-testid="report-day-overtime"
+              className="tabular-time font-display mt-1.5 text-2xl font-extrabold text-orange-900"
             >
-              {summary.averageDailyFormatted}
+              {summary.totalDayOvertimeFormatted}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+              <div className="flex items-center gap-2">
+                <Moon className="h-4 w-4 text-indigo-700 shrink-0" aria-hidden="true" />
+                <p className="text-xs font-bold text-indigo-950">إجمالي الساعات الليلية</p>
+              </div>
+              <span className="text-[11px] font-semibold text-indigo-800">
+                06:00 م – 06:00 ص (× {NIGHT_OVERTIME_MULTIPLIER.toFixed(2)})
+              </span>
+            </div>
+            <p
+              data-testid="report-night-overtime"
+              className="tabular-time font-display mt-1.5 text-2xl font-extrabold text-indigo-900"
+            >
+              {summary.totalNightOvertimeFormatted}
             </p>
           </div>
         </div>
 
-        {/* Mobile Card Breakdown (< sm) */}
-        <div className="mt-5 space-y-2.5 sm:hidden">
-          {monthEntries.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-sm text-slate-500">
-              مفيش أيام مسجلة في شهر {formatMonthLabel(selectedMonth)}.
+        {/* Per-Month Hourly Rate Input & Financial Overtime Summary */}
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/60 p-4 sm:p-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="max-w-md">
+              <div className="flex items-center gap-2">
+                <Banknote className="h-5 w-5 text-teal-700 shrink-0" aria-hidden="true" />
+                <h3 className="font-display text-base font-bold text-slate-900">
+                  تسعير الأوفر تايم — {formatMonthLabel(selectedMonth)}
+                </h3>
+              </div>
+              <p className="mt-1 text-xs text-slate-600">
+                كل شهر ليه سعر ساعة أساسي مستقل، وتعديله بيحسب مستحقات الشهر ده بس من غير ما يغير
+                أي شهر تاني.
+              </p>
             </div>
-          ) : (
-            monthEntries.map((entry: WorkEntry) => {
-              const calc = calculateEntryDuration(entry);
-              return (
-                <div
-                  key={entry.id}
-                  className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3 text-xs"
-                >
-                  <div className="min-w-0">
-                    <p className="font-bold text-slate-900">
-                      {formatArabicShortDate(entry.workDate)} · {SHIFTS[entry.shift].shortLabel}
-                    </p>
-                    <p className="mt-1 text-slate-600">
-                      <span className="tabular-time font-semibold">{entry.checkInTime}</span>
-                      {' — '}
-                      {entry.checkOutTime ? (
-                        <>
-                          <span className="tabular-time font-semibold">{entry.checkOutTime}</span>
-                          {entry.checkOutDate && entry.checkOutDate !== entry.workDate && (
-                            <span className="mr-1 text-teal-700 font-medium">(تاني يوم)</span>
-                          )}
-                        </>
-                      ) : (
-                        <span className="font-semibold text-amber-700">ناقص انصراف</span>
-                      )}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0 text-left">
-                    <div>
-                      <span className="block text-[10px] text-slate-500">شغل</span>
-                      <span className="tabular-time font-bold text-slate-900">
-                        {calc.isComplete && calc.isValid ? calc.workedFormatted : '—'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="block text-[10px] text-slate-500">أوفر تايم</span>
-                      <span
-                        className={`tabular-time font-bold ${
-                          calc.overtimeMinutes > 0 ? 'text-amber-700' : 'text-slate-500'
-                        }`}
-                      >
-                        {calc.isComplete && calc.isValid ? calc.overtimeFormatted : '—'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
 
-        {/* Desktop Table Breakdown (>= sm) */}
-        <div className="mt-6 hidden overflow-x-auto sm:block">
-          {monthEntries.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 py-8 text-center text-sm text-slate-500">
-              مفيش أيام مسجلة في شهر {formatMonthLabel(selectedMonth)}.
+            <div className="w-full md:w-72">
+              <label
+                htmlFor="monthly-hourly-rate"
+                className="block text-xs font-bold text-slate-800"
+              >
+                سعر الساعة الأساسي (جنيه مصري)
+              </label>
+              <div className="relative mt-1.5">
+                <input
+                  id="monthly-hourly-rate"
+                  data-testid="monthly-hourly-rate-input"
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="any"
+                  value={rateDraft}
+                  onChange={(e) => handleRateInputChange(e.target.value)}
+                  placeholder="مثلاً: 50 أو 62.5"
+                  className="tabular-time min-h-[44px] w-full rounded-xl border border-slate-300 bg-white pr-3.5 pl-14 text-right text-sm font-bold text-slate-900 placeholder:text-right placeholder:font-normal placeholder:text-slate-400 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                />
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-slate-500">
+                  ج.م
+                </span>
+              </div>
+              {rateError && (
+                <p role="alert" className="mt-1.5 text-xs font-semibold text-red-700">
+                  {rateError}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Financial Results or Unset Rate Notice */}
+          {!financials.hasRate ? (
+            <div
+              data-testid="rate-unset-notice"
+              className="mt-4 flex items-start gap-2.5 rounded-xl border border-dashed border-slate-300 bg-white p-4 text-xs text-slate-700"
+            >
+              <AlertCircle className="mt-0.5 h-4 w-4 text-amber-600 shrink-0" aria-hidden="true" />
+              <div>
+                <p className="font-bold text-slate-900">
+                  سعر الساعة مش متحدد لشهر {formatMonthLabel(selectedMonth)} لسه
+                </p>
+                <p className="mt-0.5 text-slate-600">
+                  اكتب سعر الساعة الأساسي فوق عشان يتحسب تلقائيًا قيمة الساعات النهارية (×{' '}
+                  {DAY_OVERTIME_MULTIPLIER}) والساعات الليلية (×{' '}
+                  {NIGHT_OVERTIME_MULTIPLIER.toFixed(2)}) وإجمالي مستحقات الأوفر تايم.
+                </p>
+              </div>
             </div>
           ) : (
-            <table className="w-full border-collapse text-right text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-xs font-bold text-slate-600">
-                  <th className="px-3 py-2.5">التاريخ</th>
-                  <th className="px-3 py-2.5">الوردية</th>
-                  <th className="px-3 py-2.5">الحضور</th>
-                  <th className="px-3 py-2.5">الانصراف</th>
-                  <th className="px-3 py-2.5">ساعات الشغل</th>
-                  <th className="px-3 py-2.5">الأوفر تايم</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {monthEntries.map((entry: WorkEntry) => {
-                  const calc = calculateEntryDuration(entry);
-                  return (
-                    <tr key={entry.id} className="hover:bg-slate-50/70">
-                      <td className="px-3 py-2.5 font-semibold text-slate-900">
-                        {formatArabicShortDate(entry.workDate)}{' '}
-                        <span className="tabular-time text-xs font-normal text-slate-400">
-                          ({formatEgyptianNumericDate(entry.workDate)})
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5 text-slate-700">{SHIFTS[entry.shift].shortLabel}</td>
-                      <td className="px-3 py-2.5 font-semibold text-slate-900">
-                        <span className="tabular-time">{entry.checkInTime}</span>
-                      </td>
-                      <td className="px-3 py-2.5 font-semibold text-slate-900">
-                        {entry.checkOutTime ? (
-                          <>
-                            <span className="tabular-time">{entry.checkOutTime}</span>
-                            {entry.checkOutDate && entry.checkOutDate !== entry.workDate && (
-                              <span className="mr-1.5 text-[11px] font-medium text-teal-700">
-                                (تاني يوم)
-                              </span>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-xs font-semibold text-amber-700">ناقص انصراف</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 font-bold text-slate-900">
-                        <span className="tabular-time">
-                          {calc.isComplete && calc.isValid ? calc.workedFormatted : '—'}
-                        </span>
-                      </td>
-                      <td
-                        className={`px-3 py-2.5 font-bold ${
-                          calc.overtimeMinutes > 0 ? 'text-amber-700' : 'text-slate-500'
-                        }`}
-                      >
-                        <span className="tabular-time">
-                          {calc.isComplete && calc.isValid ? calc.overtimeFormatted : '—'}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <div
+              data-testid="financial-summary-cards"
+              className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3"
+            >
+              <div className="rounded-xl border border-orange-200 bg-white p-3.5">
+                <p className="text-xs font-medium text-slate-600">
+                  قيمة الأوفر تايم النهاري{' '}
+                  <span className="text-[11px] text-orange-700 font-semibold">
+                    ({formatEgpAmount(financials.dayHourlyRate)} ج.م/ساعة)
+                  </span>
+                </p>
+                <p
+                  data-testid="report-day-amount"
+                  className="font-display mt-1 text-xl font-extrabold text-orange-900"
+                >
+                  <span className="tabular-time">{formatEgpAmount(financials.dayOvertimeAmount)}</span>{' '}
+                  <span className="text-xs font-bold text-slate-600">ج.م</span>
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-indigo-200 bg-white p-3.5">
+                <p className="text-xs font-medium text-slate-600">
+                  قيمة الأوفر تايم الليلي{' '}
+                  <span className="text-[11px] text-indigo-700 font-semibold">
+                    ({formatEgpAmount(financials.nightHourlyRate)} ج.م/ساعة)
+                  </span>
+                </p>
+                <p
+                  data-testid="report-night-amount"
+                  className="font-display mt-1 text-xl font-extrabold text-indigo-900"
+                >
+                  <span className="tabular-time">
+                    {formatEgpAmount(financials.nightOvertimeAmount)}
+                  </span>{' '}
+                  <span className="text-xs font-bold text-slate-600">ج.م</span>
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-teal-300 bg-teal-50/70 p-3.5">
+                <p className="text-xs font-bold text-teal-950">إجمالي مستحقات الأوفر تايم</p>
+                <p
+                  data-testid="report-total-amount"
+                  className="font-display mt-1 text-2xl font-extrabold text-teal-900"
+                >
+                  <span className="tabular-time">
+                    {formatEgpAmount(financials.totalOvertimeAmount)}
+                  </span>{' '}
+                  <span className="text-xs font-bold text-teal-800">ج.م</span>
+                </p>
+              </div>
+            </div>
           )}
         </div>
       </section>

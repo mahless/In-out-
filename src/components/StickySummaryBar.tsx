@@ -42,7 +42,7 @@ export const StickySummaryBar: React.FC<StickySummaryBarProps> = ({ summary }) =
                 إجمالي الأوفر تايم
                 <span className="hidden text-amber-800/80 font-normal sm:inline">
                   {' '}
-                  · فوق 8 ساعات
+                  · خارج الوردية
                 </span>
               </p>
             </div>
