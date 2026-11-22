@@ -614,3 +614,61 @@ export function updateWorkEntry(
 export function deleteWorkEntry(entries: WorkEntry[], targetId: string): WorkEntry[] {
   return sortEntriesDesc(entries.filter((e) => e.id !== targetId));
 }
+
+/**
+ * Normalizes Arabic and mixed Latin/numeric text for forgiving search:
+ * - Strips Arabic diacritics (tashkeel) and tatweel
+ * - Unifies Alef forms (أ إ آ ٱ -> ا)
+ * - Unifies Teh Marbuta & Heh (ة -> ه)
+ * - Unifies Alef Maksura & Yeh (ى -> ي) and Hamza carriers (ؤ -> و, ئ -> ي)
+ * - Converts Eastern Arabic / Persian numerals (٠-٩, ۰-۹) to ASCII 0-9
+ * - Collapses extra whitespace and lowercases
+ */
+export function normalizeArabicSearchText(value: string): string {
+  return value
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/ؤ/g, 'و')
+    .replace(/ئ/g, 'ي')
+    .replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d)))
+    .replace(/[۰-۹]/g, (d) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d)))
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const SHIFT_SEARCH_SYNONYMS: Record<ShiftId, string> = {
+  shift1: 'الاولي الاول 1',
+  shift2: 'التانيه الثانيه 2',
+  shift3: 'التالته الثالثه 3',
+};
+
+/**
+ * Checks if a WorkEntry matches an Arabic/English/numeric search query across date,
+ * shift label (colloquial & MSA), notes, and incomplete status.
+ */
+export function matchesWorkEntrySearch(entry: WorkEntry, rawQuery: string): boolean {
+  const normalizedQuery = normalizeArabicSearchText(rawQuery);
+  if (!normalizedQuery) return true;
+
+  const tokens = normalizedQuery.split(' ').filter(Boolean);
+  if (tokens.length === 0) return true;
+
+  const searchable = normalizeArabicSearchText(
+    [
+      entry.workDate,
+      formatEgyptianNumericDate(entry.workDate),
+      formatArabicDate(entry.workDate),
+      formatMonthLabel(getMonthKey(entry.workDate)),
+      SHIFTS[entry.shift]?.label ?? '',
+      SHIFT_SEARCH_SYNONYMS[entry.shift] ?? '',
+      entry.notes ?? '',
+      !entry.checkOutTime ? 'ناقص انصراف لسه مسجلتش' : '',
+    ].join(' ')
+  );
+
+  return tokens.every((token) => searchable.includes(token));
+}
+

@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   Calendar,
   Edit3,
-  Eye,
   Flame,
   PlusCircle,
   Search,
@@ -17,9 +16,9 @@ import {
   formatArabicDate,
   formatEgyptianNumericDate,
   formatMonthLabel,
-  formatTime12hEgyptian,
   getAvailableMonths,
   getMonthKey,
+  matchesWorkEntrySearch,
   SHIFT_LIST,
   SHIFTS,
 } from '../utils/workCalculations';
@@ -49,15 +48,13 @@ export const WorkLogView: React.FC<WorkLogViewProps> = ({
     [entries, currentMonthKey]
   );
 
-  const [selectedMonth, setSelectedMonth] = useState<string>('all');
+  const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthKey);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [detailEntry, setDetailEntry] = useState<WorkEntry | null>(null);
   const [editingEntry, setEditingEntry] = useState<WorkEntry | null>(null);
   const [deletingEntry, setDeletingEntry] = useState<WorkEntry | null>(null);
 
-  const isAnyModalOpen = Boolean(detailEntry || editingEntry || deletingEntry);
+  const isAnyModalOpen = Boolean(editingEntry || deletingEntry);
   useModalBackHandler('worklog-modal', isAnyModalOpen, () => {
-    setDetailEntry(null);
     setEditingEntry(null);
     setDeletingEntry(null);
   });
@@ -116,21 +113,11 @@ export const WorkLogView: React.FC<WorkLogViewProps> = ({
   };
 
   const filteredEntries = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
     return entries.filter((entry) => {
       if (selectedMonth !== 'all' && getMonthKey(entry.workDate) !== selectedMonth) {
         return false;
       }
-      if (!q) return true;
-      const arabicDate = formatArabicDate(entry.workDate).toLowerCase();
-      const shiftLabel = SHIFTS[entry.shift].label.toLowerCase();
-      const notes = (entry.notes ?? '').toLowerCase();
-      return (
-        entry.workDate.includes(q) ||
-        arabicDate.includes(q) ||
-        shiftLabel.includes(q) ||
-        notes.includes(q)
-      );
+      return matchesWorkEntrySearch(entry, searchQuery);
     });
   }, [entries, selectedMonth, searchQuery]);
 
@@ -192,17 +179,31 @@ export const WorkLogView: React.FC<WorkLogViewProps> = ({
           <p className="mt-1 text-xs text-slate-500">
             سجل يوم شغلك الأول من شاشة تسجيل اليوم وهتظهر كل التفاصيل هنا.
           </p>
-          <button
-            type="button"
-            onClick={() => onJumpToRegisterDate(new Date().toISOString().slice(0, 10))}
-            className="mt-4 inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800 cursor-pointer"
-          >
-            <PlusCircle className="h-4 w-4" aria-hidden="true" />
-            <span>روح لتسجيل النهارده</span>
-          </button>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2.5">
+            {entries.length > 0 && selectedMonth !== 'all' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedMonth('all');
+                  setSearchQuery('');
+                }}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 cursor-pointer"
+              >
+                <span>عرض كل الشهور</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => onJumpToRegisterDate(new Date().toISOString().slice(0, 10))}
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-800 cursor-pointer"
+            >
+              <PlusCircle className="h-4 w-4" aria-hidden="true" />
+              <span>روح لتسجيل النهارده</span>
+            </button>
+          </div>
         </section>
       ) : (
-        <section aria-label="قائمة أيام الشغل" className="space-y-3" data-testid="work-log-list">
+        <section aria-label="قائمة أيام الشغل" className="space-y-2.5" data-testid="work-log-list">
           {filteredEntries.map((entry) => {
             const calc = calculateEntryDuration(entry);
             const isIncomplete = !entry.checkOutTime;
@@ -212,17 +213,17 @@ export const WorkLogView: React.FC<WorkLogViewProps> = ({
               <article
                 key={entry.id}
                 data-testid={`log-entry-${entry.workDate}`}
-                className={`rounded-2xl border p-4 transition-colors sm:p-5 ${
+                className={`rounded-2xl border p-3 transition-colors sm:p-4 ${
                   isIncomplete
                     ? 'border-amber-300 bg-amber-50/50'
                     : 'border-slate-200 bg-white'
                 }`}
               >
-                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between md:gap-4">
                   {/* Date & Shift Info */}
-                  <div className="min-w-0 space-y-1">
+                  <div className="min-w-0 space-y-0.5">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-display text-base font-bold text-slate-900">
+                      <h3 className="font-display text-sm font-bold text-slate-900 sm:text-base">
                         {formatArabicDate(entry.workDate)}
                       </h3>
                       <span className="text-xs text-slate-400" aria-hidden="true">
@@ -233,7 +234,7 @@ export const WorkLogView: React.FC<WorkLogViewProps> = ({
                       </span>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600">
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-slate-600">
                       <span>
                         الحضور:{' '}
                         <strong className="tabular-time text-slate-900">{entry.checkInTime}</strong>
@@ -248,7 +249,7 @@ export const WorkLogView: React.FC<WorkLogViewProps> = ({
                             {entry.checkOutTime}
                           </strong>
                           {entry.checkOutDate && entry.checkOutDate !== entry.workDate && (
-                            <span className="mr-1 text-teal-700 font-medium">
+                            <span className="mr-1 font-medium text-teal-700">
                               (تاني يوم{' '}
                               <span className="tabular-time">
                                 {formatEgyptianNumericDate(entry.checkOutDate)}
@@ -266,24 +267,27 @@ export const WorkLogView: React.FC<WorkLogViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Duration Metrics + Actions */}
-                  <div className="flex flex-wrap items-center justify-between gap-4 border-t border-slate-100 pt-3 md:border-t-0 md:pt-0">
-                    <div className="flex items-center gap-5">
+                  {/* Duration Metrics + Actions (single compact row) */}
+                  <div
+                    data-testid={`log-metrics-actions-${entry.workDate}`}
+                    className="flex flex-nowrap items-center justify-between gap-2 border-t border-slate-100 pt-2.5 md:gap-5 md:border-t-0 md:pt-0"
+                  >
+                    <div className="flex min-w-0 items-center gap-3.5 sm:gap-5">
                       <div>
-                        <p className="text-[11px] text-slate-500">ساعات الشغل</p>
-                        <p className="tabular-time font-display text-lg font-extrabold text-slate-900">
+                        <p className="text-[10px] text-slate-500 sm:text-[11px]">ساعات الشغل</p>
+                        <p className="tabular-time font-display text-base font-extrabold text-slate-900 sm:text-lg">
                           {calc.isComplete && calc.isValid ? calc.workedFormatted : '--:--'}
                         </p>
                       </div>
 
                       <div>
-                        <p className="text-[11px] text-slate-500">الأوفر تايم</p>
+                        <p className="text-[10px] text-slate-500 sm:text-[11px]">الأوفر تايم</p>
                         <p
-                          className={`tabular-time font-display inline-flex items-center gap-1 text-lg font-extrabold ${
+                          className={`tabular-time font-display inline-flex items-center gap-1 text-base font-extrabold sm:text-lg ${
                             hasOvertime ? 'text-amber-700' : 'text-slate-600'
                           }`}
                         >
-                          {hasOvertime && <Flame className="h-4 w-4 text-amber-600" aria-hidden="true" />}
+                          {hasOvertime && <Flame className="h-3.5 w-3.5 text-amber-600 sm:h-4 sm:w-4" aria-hidden="true" />}
                           <span>
                             {calc.isComplete && calc.isValid ? calc.overtimeFormatted : '--:--'}
                           </span>
@@ -291,23 +295,14 @@ export const WorkLogView: React.FC<WorkLogViewProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setDetailEntry(entry)}
-                        aria-label={`عرض تفاصيل يوم ${entry.workDate}`}
-                        className="inline-flex min-h-[42px] min-w-[42px] items-center justify-center rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-                      >
-                        <Eye className="h-4 w-4" aria-hidden="true" />
-                      </button>
-
+                    <div className="flex shrink-0 items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => openEditModal(entry)}
                         aria-label={`تعديل يوم ${entry.workDate}`}
-                        className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-800 hover:bg-slate-50 cursor-pointer"
+                        className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 sm:min-h-[40px] sm:px-3 cursor-pointer"
                       >
-                        <Edit3 className="h-4 w-4 text-teal-700" aria-hidden="true" />
+                        <Edit3 className="h-3.5 w-3.5 text-teal-700 sm:h-4 sm:w-4" aria-hidden="true" />
                         <span>تعديل</span>
                       </button>
 
@@ -315,9 +310,9 @@ export const WorkLogView: React.FC<WorkLogViewProps> = ({
                         type="button"
                         onClick={() => setDeletingEntry(entry)}
                         aria-label={`حذف يوم ${entry.workDate}`}
-                        className="inline-flex min-h-[42px] min-w-[42px] items-center justify-center rounded-xl border border-red-200 bg-white px-2.5 text-xs font-semibold text-red-700 hover:bg-red-50 cursor-pointer"
+                        className="inline-flex min-h-[38px] min-w-[38px] items-center justify-center rounded-xl border border-red-200 bg-white px-2 text-xs font-semibold text-red-700 hover:bg-red-50 sm:min-h-[40px] sm:min-w-[40px] sm:px-2.5 cursor-pointer"
                       >
-                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden="true" />
                       </button>
                     </div>
                   </div>
@@ -326,130 +321,6 @@ export const WorkLogView: React.FC<WorkLogViewProps> = ({
             );
           })}
         </section>
-      )}
-
-      {/* Day Details Modal */}
-      {detailEntry && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-xs"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="detail-modal-title"
-        >
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-            <div className="flex items-center justify-between gap-4 border-b border-slate-100 pb-3">
-              <h3 id="detail-modal-title" className="font-display text-lg font-bold text-slate-900">
-                تفاصيل يوم {formatArabicDate(detailEntry.workDate)}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setDetailEntry(null)}
-                aria-label="إغلاق التفاصيل"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 cursor-pointer"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {(() => {
-              const calc = calculateEntryDuration(detailEntry);
-              return (
-                <dl className="mt-4 divide-y divide-slate-100 text-sm">
-                  <div className="flex justify-between py-2.5">
-                    <dt className="text-slate-500">التاريخ</dt>
-                    <dd className="tabular-time font-semibold text-slate-900">
-                      {formatEgyptianNumericDate(detailEntry.workDate)}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between py-2.5">
-                    <dt className="text-slate-500">الوردية</dt>
-                    <dd className="font-semibold text-slate-900">
-                      {SHIFTS[detailEntry.shift].label}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between py-2.5">
-                    <dt className="text-slate-500">الحضور</dt>
-                    <dd className="font-bold text-slate-900">
-                      <span className="tabular-time">{detailEntry.checkInTime}</span> (
-                      {formatTime12hEgyptian(detailEntry.checkInTime)})
-                    </dd>
-                  </div>
-                  <div className="flex justify-between py-2.5">
-                    <dt className="text-slate-500">الانصراف</dt>
-                    <dd className="font-bold text-slate-900">
-                      {detailEntry.checkOutTime ? (
-                        <>
-                          <span className="tabular-time">{detailEntry.checkOutTime}</span> (
-                          <span className="tabular-time">
-                            {formatEgyptianNumericDate(detailEntry.checkOutDate || detailEntry.workDate)}
-                          </span>
-                          )
-                        </>
-                      ) : (
-                        <span className="text-amber-700">لسه مسجلتش الانصراف</span>
-                      )}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between py-2.5">
-                    <dt className="text-slate-500">إجمالي ساعات الشغل</dt>
-                    <dd className="tabular-time font-bold text-teal-800">
-                      {calc.isComplete ? calc.workedFormatted : '—'}
-                    </dd>
-                  </div>
-                  <div className="flex justify-between py-2.5">
-                    <dt className="text-slate-500">الأوفر تايم</dt>
-                    <dd className="tabular-time font-bold text-amber-700">
-                      {calc.isComplete ? calc.overtimeFormatted : '—'}
-                    </dd>
-                  </div>
-                  {calc.isComplete && calc.overtimeMinutes > 0 && (
-                    <div className="flex justify-between py-2.5">
-                      <dt className="text-slate-500">تصنيف الأوفر تايم</dt>
-                      <dd className="font-semibold text-slate-800">
-                        نهاري{' '}
-                        <span className="tabular-time text-amber-800">
-                          {calc.dayOvertimeFormatted}
-                        </span>
-                        {' · '}
-                        ليلي{' '}
-                        <span className="tabular-time text-indigo-800">
-                          {calc.nightOvertimeFormatted}
-                        </span>
-                      </dd>
-                    </div>
-                  )}
-                  {detailEntry.notes && (
-                    <div className="py-2.5">
-                      <dt className="text-slate-500">ملاحظات</dt>
-                      <dd className="mt-1 text-slate-800">{detailEntry.notes}</dd>
-                    </div>
-                  )}
-                </dl>
-              );
-            })()}
-
-            <div className="mt-6 flex gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  const target = detailEntry;
-                  setDetailEntry(null);
-                  openEditModal(target);
-                }}
-                className="flex-1 min-h-[44px] rounded-xl bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 cursor-pointer"
-              >
-                تعديل اليوم
-              </button>
-              <button
-                type="button"
-                onClick={() => setDetailEntry(null)}
-                className="flex-1 min-h-[44px] rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-              >
-                إغلاق
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Edit Modal */}

@@ -9,6 +9,8 @@ import {
   deleteWorkEntry,
   formatMinutesToHHMM,
   inferCheckOutDate,
+  matchesWorkEntrySearch,
+  normalizeArabicSearchText,
   toEpochMinutes,
   updateWorkEntry,
 } from './workCalculations';
@@ -489,3 +491,36 @@ test('16. النسخ الاحتياطي JSON واستعادته بالدمج أ�
   assert.equal(replaced.monthlyHourlyRates['2026-10'], undefined);
   assert.equal(formatMinutesToHHMM(1000), '16:40');
 });
+
+test('17. البحث العربي يفهم توحيد (ه/ة) و(أ/إ/آ/ا) و(ى/ي) والتشكيل والأرقام العربية', () => {
+  assert.equal(normalizeArabicSearchText('الْوَرْدِيَّةُ الأُولَىٰ'), 'الورديه الاولي');
+  assert.equal(normalizeArabicSearchText('٢٢/١١/٢٠٢٦'), '22/11/2026');
+
+  const entry: WorkEntry = {
+    id: '2026-11-22',
+    workDate: '2026-11-22', // الأحد 22 نوفمبر 2026
+    shift: 'shift1', // الوردية الأولى
+    checkInTime: '07:00',
+    checkOutDate: '2026-11-22',
+    checkOutTime: '15:00',
+    notes: 'مراجعة جرد المساء',
+    createdAt: '2026-11-22T07:00:00.000Z',
+    updatedAt: '2026-11-22T15:00:00.000Z',
+  };
+
+  // ه vs ة and أ vs ا and ي vs ى
+  assert.equal(matchesWorkEntrySearch(entry, 'الورديه الاولي'), true);
+  assert.equal(matchesWorkEntrySearch(entry, 'الوردية الأولى'), true);
+  assert.equal(matchesWorkEntrySearch(entry, 'الاحد'), true);
+  assert.equal(matchesWorkEntrySearch(entry, 'الأحد'), true);
+  assert.equal(matchesWorkEntrySearch(entry, 'مراجعه'), true);
+  // Arabic numerals and multi-word query
+  assert.equal(matchesWorkEntrySearch(entry, 'الاولي ٢٢ نوفمبر'), true);
+  // Shift 2/3 colloquial & MSA
+  const shift2Entry: WorkEntry = { ...entry, shift: 'shift2' };
+  assert.equal(matchesWorkEntrySearch(shift2Entry, 'التانيه'), true);
+  assert.equal(matchesWorkEntrySearch(shift2Entry, 'الثانية'), true);
+  // Non-matching query
+  assert.equal(matchesWorkEntrySearch(entry, 'التالته'), false);
+});
+

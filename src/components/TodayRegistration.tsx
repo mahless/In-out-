@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   Clock,
   Flame,
+  List,
   LogIn,
   LogOut,
   RotateCcw,
@@ -15,7 +16,6 @@ import {
   calculateEntryDuration,
   formatArabicDate,
   formatEgyptianNumericDate,
-  formatTime12hEgyptian,
   getLocalDateString,
   getLocalTimeString,
   inferCheckOutDate,
@@ -290,22 +290,52 @@ export const TodayRegistration: React.FC<TodayRegistrationProps> = ({
           aria-label="تسجيل يوم الشغل"
           className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 lg:col-span-7"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
-            <div>
-              <h2 className="font-display text-lg font-bold text-slate-900 sm:text-xl">
+          <div className="flex flex-nowrap items-center justify-between gap-2 border-b border-slate-100 pb-3.5 sm:gap-3 sm:pb-4">
+            <div className="min-w-0">
+              <h2 className="font-display text-base font-bold text-slate-900 sm:text-xl">
                 تسجيل يوم الشغل
               </h2>
-              <p className="mt-0.5 text-xs text-slate-500">
+              <p className="mt-0.5 text-[11px] text-slate-500 sm:text-xs">
                 ساعة الجهاز دلوقتي:{' '}
                 <span className="tabular-time font-semibold text-slate-700">{liveClock}</span>
               </p>
             </div>
 
+            <div className="w-[132px] shrink-0 sm:w-[176px]">
+              <label htmlFor="work-date-input" className="sr-only">
+                تاريخ يوم الشغل
+              </label>
+              <RtlDateInput
+                id="work-date-input"
+                value={selectedDate}
+                className="min-h-[40px] sm:min-h-[44px]"
+                onChange={(val) => {
+                  if (val) onSelectDate(val);
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Date summary, existing entry indicator, and quick return to today */}
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex min-w-0 flex-nowrap items-center gap-2 sm:gap-3">
+              <p className="truncate text-xs font-medium text-slate-600">
+                {formatArabicDate(selectedDate)}
+              </p>
+              {currentEntry && (
+                <span
+                  data-testid="date-already-logged"
+                  className="shrink-0 whitespace-nowrap text-xs font-semibold text-teal-800"
+                >
+                  التاريخ ده متسجل بالفعل
+                </span>
+              )}
+            </div>
             {selectedDate !== todayStr && (
               <button
                 type="button"
                 onClick={() => onSelectDate(todayStr)}
-                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 whitespace-nowrap shrink-0 cursor-pointer"
+                className="inline-flex min-h-[36px] items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100 whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
                 <span>رجوع لتاريخ النهارده</span>
@@ -313,41 +343,12 @@ export const TodayRegistration: React.FC<TodayRegistrationProps> = ({
             )}
           </div>
 
-          {/* 1. Date Picker */}
-          <div className="mt-5">
-            <label htmlFor="work-date-input" className="block text-sm font-semibold text-slate-800">
-              1. تاريخ يوم الشغل
-            </label>
-            <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-              <div className="flex-1">
-                <RtlDateInput
-                  id="work-date-input"
-                  value={selectedDate}
-                  onChange={(val) => {
-                    if (val) onSelectDate(val);
-                  }}
-                />
-              </div>
-              <p className="text-xs font-medium text-slate-600 sm:min-w-[170px]">
-                {formatArabicDate(selectedDate)}
-              </p>
-            </div>
-            {currentEntry && (
-              <p className="mt-2 text-xs font-medium text-teal-800">
-                التاريخ ده متسجل بالفعل — أي تعديل هيتحفظ عليه مباشرة ومش هيتكرر.
-              </p>
-            )}
-          </div>
-
-          {/* 2. Shift Selector */}
-          <div className="mt-6">
-            <span className="block text-sm font-semibold text-slate-800">
-              2. اختار الوردية (بتتحفظ تلقائيًا)
-            </span>
+          {/* Shift Selector */}
+          <div className="mt-4">
             <div
               role="radiogroup"
               aria-label="اختيار الوردية"
-              className="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-3"
+              className="grid grid-cols-1 gap-2.5 sm:grid-cols-3"
             >
               {SHIFT_LIST.map((shift) => {
                 const isSelected = activeShift === shift.id;
@@ -379,38 +380,34 @@ export const TodayRegistration: React.FC<TodayRegistrationProps> = ({
             </div>
           </div>
 
-          {/* 3 & 4. Check-In and Check-Out Quick Buttons + Manual Time Editing */}
-          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {/* Check-In and Check-Out Quick Buttons + Manual Time Editing (always side-by-side) */}
+          <div
+            data-testid="checkin-checkout-grid"
+            className="mt-5 grid grid-cols-2 gap-2.5 sm:gap-4"
+          >
             {/* Check-in block */}
-            <div className="rounded-xl bg-slate-50 p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-slate-900">3. الحضور</span>
-                {currentEntry && (
-                  <span className="text-xs font-semibold text-teal-700">تم التسجيل</span>
-                )}
-              </div>
-
+            <div className="min-w-0 rounded-xl bg-slate-50 p-2.5 sm:p-4">
               <button
                 type="button"
                 onClick={handleCheckInClick}
                 disabled={Boolean(currentEntry)}
-                className={`mt-3 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-colors ${
+                className={`flex min-h-[52px] w-full items-center justify-center gap-1.5 rounded-xl px-2.5 py-2.5 text-center text-xs font-bold leading-tight transition-colors sm:gap-2 sm:px-4 sm:py-3 sm:text-sm ${
                   currentEntry
                     ? 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400'
                     : 'cursor-pointer bg-teal-700 text-white hover:bg-teal-800 active:scale-[0.99]'
                 }`}
               >
-                <LogIn className="h-5 w-5" aria-hidden="true" />
+                <LogIn className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" aria-hidden="true" />
                 <span>تسجيل الحضور</span>
               </button>
 
               {currentEntry && (
-                <div className="mt-3">
+                <div className="mt-2.5 sm:mt-3">
                   <label
                     htmlFor="manual-checkin-time"
-                    className="block text-xs font-medium text-slate-600"
+                    className="block text-[11px] font-medium text-slate-600 sm:text-xs"
                   >
-                    تعديل وقت الحضور يدويًا
+                    تعديل وقت الحضور
                   </label>
                   <div className="mt-1.5">
                     <RtlTimeInput
@@ -424,19 +421,12 @@ export const TodayRegistration: React.FC<TodayRegistrationProps> = ({
             </div>
 
             {/* Check-out block */}
-            <div className="rounded-xl bg-slate-50 p-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-slate-900">4. الانصراف</span>
-                {currentEntry?.checkOutTime && (
-                  <span className="text-xs font-semibold text-teal-700">تم التسجيل</span>
-                )}
-              </div>
-
+            <div className="min-w-0 rounded-xl bg-slate-50 p-2.5 sm:p-4">
               <button
                 type="button"
                 onClick={handleCheckOutClick}
                 disabled={!currentEntry}
-                className={`mt-3 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-colors ${
+                className={`flex min-h-[52px] w-full items-center justify-center gap-1.5 rounded-xl px-2.5 py-2.5 text-center text-xs font-bold leading-tight transition-colors sm:gap-2 sm:px-4 sm:py-3 sm:text-sm ${
                   !currentEntry
                     ? 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400'
                     : currentEntry.checkOutTime
@@ -444,30 +434,30 @@ export const TodayRegistration: React.FC<TodayRegistrationProps> = ({
                     : 'cursor-pointer bg-slate-900 text-white hover:bg-slate-800 active:scale-[0.99]'
                 }`}
               >
-                <LogOut className="h-5 w-5" aria-hidden="true" />
+                <LogOut className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" aria-hidden="true" />
                 <span>
                   {currentEntry?.checkOutTime ? 'تحديث الانصراف بالوقت الحالي' : 'تسجيل الانصراف'}
                 </span>
               </button>
 
               {!currentEntry ? (
-                <p className="mt-3 text-xs text-slate-500">
-                  الزر ده هيفتح بعد ما تسجل الحضور الأول.
+                <p className="mt-2.5 text-[11px] leading-snug text-slate-500 sm:mt-3 sm:text-xs">
+                  هيفتح بعد تسجيل الحضور الأول.
                 </p>
               ) : (
-                <div className="mt-3 space-y-2.5">
+                <div className="mt-2.5 space-y-2.5 sm:mt-3">
                   <div>
                     <label
                       htmlFor="manual-checkout-time"
-                      className="block text-xs font-medium text-slate-600"
+                      className="block text-[11px] font-medium text-slate-600 sm:text-xs"
                     >
-                      تعديل وقت الانصراف يدويًا
+                      تعديل وقت الانصراف
                     </label>
                     <div className="mt-1.5">
                       <RtlTimeInput
                         id="manual-checkout-time"
                         value={checkOutTimeInput}
-                        placeholder="لسه مسجلتش الانصراف"
+                        placeholder="لسه مسجلتش"
                         onChange={(val) => handleCheckOutManualChange(checkOutDateInput, val)}
                       />
                     </div>
@@ -475,9 +465,9 @@ export const TodayRegistration: React.FC<TodayRegistrationProps> = ({
                   <div>
                     <label
                       htmlFor="manual-checkout-date"
-                      className="block text-xs font-medium text-slate-600"
+                      className="block text-[11px] font-medium text-slate-600 sm:text-xs"
                     >
-                      تاريخ الانصراف (لو عدّيت نص الليل)
+                      تاريخ الانصراف
                     </label>
                     <div className="mt-1.5">
                       <RtlDateInput
@@ -536,23 +526,31 @@ export const TodayRegistration: React.FC<TodayRegistrationProps> = ({
         {/* Live Day Summary Panel (5 cols on desktop) */}
         <aside
           aria-label="ملخص التسجيل"
-          className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-6 lg:col-span-5"
+          className={`rounded-2xl border p-4 transition-colors sm:p-5 lg:col-span-5 ${
+            currentEntry && !currentEntry.checkOutTime
+              ? 'border-amber-300 bg-amber-50/40'
+              : 'border-slate-200 bg-white'
+          }`}
         >
-          <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-            <h2 className="font-display text-lg font-bold text-slate-900">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h2 className="font-display text-base font-bold text-slate-900 sm:text-lg">
               ملخص اليوم
             </h2>
             {currentEntry && (
-              <span className="text-xs font-semibold text-slate-500">
+              <span
+                className={`text-xs font-semibold ${
+                  currentEntry.checkOutTime ? 'text-teal-700' : 'text-amber-800'
+                }`}
+              >
                 {currentEntry.checkOutTime ? 'تسجيل مكتمل' : 'في انتظار الانصراف'}
               </span>
             )}
           </div>
 
           {!currentEntry ? (
-            <div className="py-8 text-center">
-              <Clock className="mx-auto h-10 w-10 text-slate-300" aria-hidden="true" />
-              <p className="mt-3 text-sm font-semibold text-slate-700">
+            <div className="py-6 text-center">
+              <Clock className="mx-auto h-9 w-9 text-slate-300" aria-hidden="true" />
+              <p className="mt-2.5 text-sm font-semibold text-slate-700">
                 لسه مسجلتش حضور يوم {formatArabicDate(selectedDate)}
               </p>
               <p className="mt-1 text-xs text-slate-500">
@@ -560,146 +558,152 @@ export const TodayRegistration: React.FC<TodayRegistrationProps> = ({
               </p>
             </div>
           ) : (
-            <div className="mt-4 space-y-4">
-              <dl className="divide-y divide-slate-100 text-sm">
-                <div className="flex items-center justify-between py-2.5">
-                  <dt className="text-slate-500">التاريخ</dt>
-                  <dd className="font-semibold text-slate-900">{formatArabicDate(currentEntry.workDate)}</dd>
+            <div data-testid="today-summary-card" className="mt-3 space-y-2.5">
+              {/* Date & Shift Info (unified with Work Log card) */}
+              <div className="min-w-0 space-y-0.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-display text-sm font-bold text-slate-900 sm:text-base">
+                    {formatArabicDate(currentEntry.workDate)}
+                  </h3>
+                  <span className="text-xs text-slate-400" aria-hidden="true">
+                    ·
+                  </span>
+                  <span className="text-xs font-semibold text-teal-800">
+                    {SHIFTS[currentEntry.shift].label}
+                  </span>
                 </div>
-                <div className="flex items-center justify-between py-2.5">
-                  <dt className="text-slate-500">الوردية</dt>
-                  <dd className="font-semibold text-slate-900">{SHIFTS[currentEntry.shift].label}</dd>
-                </div>
-                <div className="flex items-center justify-between py-2.5">
-                  <dt className="text-slate-500">وقت الحضور</dt>
-                  <dd className="font-bold text-slate-900">
-                    <span className="tabular-time">{currentEntry.checkInTime}</span>{' '}
-                    <span className="text-xs font-normal text-slate-500">
-                      ({formatTime12hEgyptian(currentEntry.checkInTime)})
-                    </span>
-                  </dd>
-                </div>
-                <div className="flex items-center justify-between py-2.5">
-                  <dt className="text-slate-500">وقت الانصراف</dt>
-                  <dd className="font-bold text-slate-900">
-                    {currentEntry.checkOutTime ? (
-                      <>
-                        <span className="tabular-time">{currentEntry.checkOutTime}</span>
-                        {currentEntry.checkOutDate &&
-                          currentEntry.checkOutDate !== currentEntry.workDate && (
-                            <span className="mr-1.5 text-xs font-medium text-teal-700">
-                              (تاني يوم{' '}
-                              <span className="tabular-time">
-                                {formatEgyptianNumericDate(currentEntry.checkOutDate)}
-                              </span>
-                              )
+
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs text-slate-600">
+                  <span>
+                    الحضور:{' '}
+                    <strong className="tabular-time text-slate-900">
+                      {currentEntry.checkInTime}
+                    </strong>
+                  </span>
+                  <span className="text-slate-300" aria-hidden="true">
+                    /
+                  </span>
+                  {currentEntry.checkOutTime ? (
+                    <span>
+                      الانصراف:{' '}
+                      <strong className="tabular-time text-slate-900">
+                        {currentEntry.checkOutTime}
+                      </strong>
+                      {currentEntry.checkOutDate &&
+                        currentEntry.checkOutDate !== currentEntry.workDate && (
+                          <span className="mr-1 font-medium text-teal-700">
+                            (تاني يوم{' '}
+                            <span className="tabular-time">
+                              {formatEgyptianNumericDate(currentEntry.checkOutDate)}
                             </span>
-                          )}
-                      </>
-                    ) : (
-                      <span className="text-amber-700">لسه مسجلتش الانصراف</span>
-                    )}
-                  </dd>
-                </div>
-              </dl>
-
-              {/* Calculated Hours Summary */}
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
-                  <p className="text-xs font-semibold text-slate-600">إجمالي ساعات الشغل</p>
-                  <p
-                    data-testid="today-worked-hours"
-                    className="tabular-time font-display mt-1 text-2xl font-extrabold text-slate-900"
-                  >
-                    {duration?.isComplete && duration.isValid ? duration.workedFormatted : '00:00'}
-                  </p>
-                </div>
-
-                <div
-                  className={`rounded-xl border p-3.5 ${
-                    duration && duration.overtimeMinutes > 0
-                      ? 'border-amber-200 bg-amber-50'
-                      : 'border-slate-200 bg-slate-50'
-                  }`}
-                >
-                  <div className="flex items-center gap-1.5">
-                    {duration && duration.overtimeMinutes > 0 && (
-                      <Flame className="h-3.5 w-3.5 text-amber-700" aria-hidden="true" />
-                    )}
-                    <p
-                      className={`text-xs font-semibold ${
-                        duration && duration.overtimeMinutes > 0
-                          ? 'text-amber-900'
-                          : 'text-slate-600'
-                      }`}
-                    >
-                      إجمالي الأوفر تايم
-                    </p>
-                  </div>
-                  <p
-                    data-testid="today-overtime-hours"
-                    className={`tabular-time font-display mt-1 text-2xl font-extrabold ${
-                      duration && duration.overtimeMinutes > 0
-                        ? 'text-amber-800'
-                        : 'text-slate-900'
-                    }`}
-                  >
-                    {duration?.isComplete && duration.isValid ? duration.overtimeFormatted : '00:00'}
-                  </p>
-                  {duration?.isComplete && duration.isValid && duration.overtimeMinutes > 0 && (
-                    <p
-                      data-testid="today-overtime-breakdown"
-                      className="mt-1 text-[11px] font-medium text-amber-900/90"
-                    >
-                      نهاري <span className="tabular-time font-bold">{duration.dayOvertimeFormatted}</span>
-                      {' · '}
-                      ليلي <span className="tabular-time font-bold">{duration.nightOvertimeFormatted}</span>
-                    </p>
+                            )
+                          </span>
+                        )}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 font-bold text-amber-800">
+                      <AlertCircle className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span>لسه مسجلتش الانصراف</span>
+                    </span>
                   )}
                 </div>
               </div>
 
-              {/* Quick actions */}
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
-                <button
-                  type="button"
-                  onClick={onOpenWorkLog}
-                  className="text-xs font-semibold text-teal-700 hover:text-teal-800 hover:underline cursor-pointer"
-                >
-                  عرض كل أيام الشغل في السجل
-                </button>
+              {/* Duration Metrics + Actions (single compact row unified with Work Log card) */}
+              <div
+                data-testid="today-summary-metrics-actions"
+                className="flex flex-nowrap items-center justify-between gap-2 border-t border-slate-100 pt-2.5"
+              >
+                <div className="flex min-w-0 items-center gap-3.5 sm:gap-5">
+                  <div>
+                    <p className="text-[10px] text-slate-500 sm:text-[11px]">ساعات الشغل</p>
+                    <p
+                      data-testid="today-worked-hours"
+                      className="tabular-time font-display text-base font-extrabold text-slate-900 sm:text-lg"
+                    >
+                      {duration?.isComplete && duration.isValid ? duration.workedFormatted : '--:--'}
+                    </p>
+                  </div>
 
-                {!confirmDelete ? (
+                  <div>
+                    <p className="text-[10px] text-slate-500 sm:text-[11px]">الأوفر تايم</p>
+                    <p
+                      data-testid="today-overtime-hours"
+                      className={`tabular-time font-display inline-flex items-center gap-1 text-base font-extrabold sm:text-lg ${
+                        duration && duration.overtimeMinutes > 0
+                          ? 'text-amber-700'
+                          : 'text-slate-600'
+                      }`}
+                    >
+                      {duration && duration.overtimeMinutes > 0 && (
+                        <Flame className="h-3.5 w-3.5 text-amber-600 sm:h-4 sm:w-4" aria-hidden="true" />
+                      )}
+                      <span>
+                        {duration?.isComplete && duration.isValid
+                          ? duration.overtimeFormatted
+                          : '--:--'}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-1.5">
                   <button
                     type="button"
-                    onClick={() => setConfirmDelete(true)}
-                    className="inline-flex min-h-[38px] items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-50 cursor-pointer"
+                    onClick={onOpenWorkLog}
+                    aria-label="عرض كل أيام الشغل في السجل"
+                    className="inline-flex min-h-[38px] items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-800 hover:bg-slate-50 sm:min-h-[40px] sm:px-3 cursor-pointer"
                   >
-                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                    <span>مسح اليوم ده</span>
+                    <List className="h-3.5 w-3.5 text-teal-700 sm:h-4 sm:w-4" aria-hidden="true" />
+                    <span>السجل</span>
                   </button>
-                ) : (
-                  <div className="flex items-center gap-2">
+
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete((prev) => !prev)}
+                    aria-label="مسح اليوم ده"
+                    className="inline-flex min-h-[38px] min-w-[38px] items-center justify-center rounded-xl border border-red-200 bg-white px-2 text-xs font-semibold text-red-700 hover:bg-red-50 sm:min-h-[40px] sm:min-w-[40px] sm:px-2.5 cursor-pointer"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+
+              {duration?.isComplete && duration.isValid && duration.overtimeMinutes > 0 && (
+                <p
+                  data-testid="today-overtime-breakdown"
+                  className="text-[11px] font-medium text-amber-900/90"
+                >
+                  نهاري <span className="tabular-time font-bold">{duration.dayOvertimeFormatted}</span>
+                  {' · '}
+                  ليلي <span className="tabular-time font-bold">{duration.nightOvertimeFormatted}</span>
+                </p>
+              )}
+
+              {confirmDelete && (
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50/70 px-3 py-2">
+                  <span className="text-xs font-semibold text-red-900">تأكيد مسح اليوم ده؟</span>
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => {
                         onDeleteEntry(currentEntry.id);
                         setConfirmDelete(false);
                       }}
-                      className="min-h-[38px] rounded-lg bg-red-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-700 cursor-pointer"
+                      className="min-h-[34px] rounded-lg bg-red-600 px-3 py-1 text-xs font-bold text-white hover:bg-red-700 cursor-pointer"
                     >
                       تأكيد المسح
                     </button>
                     <button
                       type="button"
                       onClick={() => setConfirmDelete(false)}
-                      className="min-h-[38px] rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                      className="min-h-[34px] rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
                     >
                       إلغاء
                     </button>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
           )}
         </aside>

@@ -5,8 +5,6 @@ import {
   CheckCircle2,
   Download,
   FileCheck2,
-  FileSpreadsheet,
-  FileText,
   FolderSync,
   Moon,
   RefreshCw,
@@ -218,7 +216,10 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div
+            data-testid="reports-header-actions"
+            className="flex flex-nowrap items-center gap-2 min-w-0"
+          >
             <select
               value={selectedMonth}
               onChange={(e) => {
@@ -226,7 +227,7 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
                 setExportStatus(null);
               }}
               aria-label="اختر الشهر للتقرير"
-              className="min-h-[42px] rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold text-slate-900 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
+              className="min-h-[40px] min-w-0 flex-1 sm:flex-none rounded-xl border border-slate-300 bg-white px-2.5 sm:px-3 text-xs sm:text-sm font-bold text-slate-900 focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/20"
             >
               {availableMonths.map((m) => (
                 <option key={m} value={m}>
@@ -238,9 +239,8 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
             <button
               type="button"
               onClick={handleExportExcel}
-              className="inline-flex min-h-[42px] items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-800 hover:bg-slate-50 whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex min-h-[40px] items-center justify-center rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-800 hover:bg-slate-50 whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <FileSpreadsheet className="h-4 w-4 text-emerald-700" aria-hidden="true" />
               <span>تصدير Excel</span>
             </button>
 
@@ -248,9 +248,8 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
               type="button"
               onClick={handleExportPdf}
               disabled={isGeneratingPdf}
-              className="inline-flex min-h-[42px] items-center gap-2 rounded-xl bg-teal-700 px-3.5 py-2 text-xs font-bold text-white hover:bg-teal-800 disabled:opacity-60 whitespace-nowrap shrink-0 cursor-pointer"
+              className="inline-flex min-h-[40px] items-center justify-center rounded-xl bg-teal-700 px-3 py-2 text-xs font-bold text-white hover:bg-teal-800 disabled:opacity-60 whitespace-nowrap shrink-0 cursor-pointer"
             >
-              <FileText className="h-4 w-4" aria-hidden="true" />
               <span>{isGeneratingPdf ? 'جاري التجهيز...' : 'تصدير PDF'}</span>
             </button>
           </div>
@@ -264,16 +263,6 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
 
         {/* Base Summary Metrics */}
         <div className="mt-5 grid grid-cols-2 gap-3">
-          <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5">
-            <p className="text-xs font-medium text-amber-900">إجمالي الأوفر تايم</p>
-            <p
-              data-testid="report-total-overtime"
-              className="tabular-time font-display mt-1 text-2xl font-extrabold text-amber-800"
-            >
-              {summary.totalOvertimeFormatted}
-            </p>
-          </div>
-
           <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
             <p className="text-xs font-medium text-slate-600">أيام الشغل المسجلة</p>
             <p
@@ -287,6 +276,16 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
                 + {summary.incompleteDaysCount} يوم ناقص انصراف
               </p>
             )}
+          </div>
+
+          <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3.5">
+            <p className="text-xs font-medium text-amber-900">إجمالي الأوفر تايم</p>
+            <p
+              data-testid="report-total-overtime"
+              className="tabular-time font-display mt-1 text-2xl font-extrabold text-amber-800"
+            >
+              {summary.totalOvertimeFormatted}
+            </p>
           </div>
         </div>
 
