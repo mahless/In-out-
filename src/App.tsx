@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BarChart3, Clock, ListChecks } from 'lucide-react';
+import { BarChart3, Clock, HardDriveUpload, ListChecks } from 'lucide-react';
 import { AppStorageData, ShiftId, WorkEntry } from './types/work';
 import {
   calculateMonthlySummary,
@@ -17,6 +17,7 @@ import { ReportsBackupView } from './components/ReportsBackupView';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineBanner } from './components/OfflineBanner';
 import { NavigationProvider, useAppNavigation } from './hooks/useNavigationHistory';
+import { useAutoBackup } from './hooks/useAutoBackup';
 
 function AppShell() {
   const [appData, setAppData] = useState<AppStorageData>(() => loadAppData());
@@ -37,6 +38,8 @@ function AppShell() {
   useEffect(() => {
     saveAppData(appData);
   }, [appData]);
+
+  const autoBackup = useAutoBackup(appData);
 
   const currentMonthSummary = useMemo(
     () => calculateMonthlySummary(appData.entries, currentMonthKey),
@@ -188,6 +191,40 @@ function AppShell() {
 
       {/* Main Content */}
       <main className="mx-auto max-w-6xl px-4 py-5 sm:px-6 sm:py-6">
+        {autoBackup.snapshot.status === 'needs-permission' && (
+          <div
+            role="region"
+            aria-label="تفعيل النسخ الاحتياطي التلقائي"
+            data-testid="auto-backup-reauth-banner"
+            className="mb-5 flex flex-col gap-3 rounded-2xl border border-teal-200 bg-teal-50/80 p-3.5 sm:flex-row sm:items-center sm:justify-between"
+          >
+            <div className="flex items-start gap-2.5">
+              <HardDriveUpload className="mt-0.5 h-5 w-5 text-teal-700 shrink-0" aria-hidden="true" />
+              <div>
+                <p className="text-xs font-bold text-teal-950 sm:text-sm">
+                  ملف النسخة الاحتياطية التلقائي محتاج موافقة سريعة بعد إعادة الفتح
+                </p>
+                <p className="mt-0.5 text-xs text-teal-900">
+                  الملف المرتبط:{' '}
+                  <span className="tabular-time font-semibold">
+                    {autoBackup.snapshot.fileName}
+                  </span>
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                void autoBackup.reauthorize();
+              }}
+              data-testid="auto-backup-reauth-banner-btn"
+              className="min-h-[40px] rounded-xl bg-teal-700 px-4 py-2 text-xs font-bold text-white hover:bg-teal-800 whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              تفعيل الحفظ التلقائي
+            </button>
+          </div>
+        )}
+
         {activeTab === 'today' && (
           <TodayRegistration
             entries={appData.entries}
@@ -216,6 +253,7 @@ function AppShell() {
           <ReportsBackupView
             appData={appData}
             currentMonthKey={currentMonthKey}
+            autoBackup={autoBackup}
             onUpdateMonthlyRate={handleUpdateMonthlyRate}
             onRestoreBackup={handleRestoreBackup}
           />
