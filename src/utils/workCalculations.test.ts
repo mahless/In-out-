@@ -138,7 +138,7 @@ test('5. تقسيم الأوفر تايم تلقائيًا عند حد 06:00 (ا
   assert.equal(res.nightOvertimeFormatted, '01:00');
 });
 
-test('6. الوردية التانية (15:00 إلى 23:00) — أوفر تايم قبل وبعد الوردية عبر حد 18:00 ومنتصف الليل', () => {
+test('6. الوردية الثانية (15:00 إلى 23:00) — أوفر تايم قبل وبعد الوردية عبر حد 18:00 ومنتصف الليل', () => {
   // Check in 13:00 (2h pre-shift day), check out next day 00:30 (1.5h post-shift night)
   const inferred = inferCheckOutDate('2026-11-11', '13:00', '00:30', 'shift2');
   assert.equal(inferred, '2026-11-12');
@@ -158,7 +158,7 @@ test('6. الوردية التانية (15:00 إلى 23:00) — أوفر تاي�
   assert.equal(res.nightOvertimeFormatted, '01:30');
 });
 
-test('7. الوردية التالتة تعبر منتصف الليل (23:00 إلى 07:00) — حضور 22:00 وانصراف 09:00', () => {
+test('7. الوردية الثالثة تعبر منتصف الليل (23:00 إلى 07:00) — حضور 22:00 وانصراف 09:00', () => {
   const inferredDate = inferCheckOutDate('2026-11-18', '22:00', '09:00', 'shift3');
   assert.equal(inferredDate, '2026-11-19');
 

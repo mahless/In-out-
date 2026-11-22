@@ -26,8 +26,8 @@ export const SHIFTS: Record<ShiftId, ShiftDefinition> = {
   },
   shift2: {
     id: 'shift2',
-    label: 'الوردية التانية',
-    shortLabel: 'التانية',
+    label: 'الوردية الثانية',
+    shortLabel: 'الثانية',
     timeRangeLabel: '03:00 عصرًا — 11:00 مساءً',
     defaultStartTime: '15:00',
     defaultEndTime: '23:00',
@@ -35,8 +35,8 @@ export const SHIFTS: Record<ShiftId, ShiftDefinition> = {
   },
   shift3: {
     id: 'shift3',
-    label: 'الوردية التالتة',
-    shortLabel: 'التالتة',
+    label: 'الوردية الثالثة',
+    shortLabel: 'الثالثة',
     timeRangeLabel: '11:00 مساءً — 07:00 صباحًا (اليوم التالي)',
     defaultStartTime: '23:00',
     defaultEndTime: '07:00',
