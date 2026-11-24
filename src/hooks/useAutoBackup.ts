@@ -5,7 +5,6 @@ import {
   createAutoBackupController,
   getBackupContentSignature,
   isFileSystemAccessSupported,
-  requestPersistentStorage,
 } from '../utils/autoBackupFile';
 
 const DEBOUNCE_MS = 450;
@@ -42,11 +41,6 @@ export function useAutoBackup(appData: AppStorageData): UseAutoBackupResult {
   const hasMountedDataChangeRef = useRef<boolean>(false);
   const initializedRef = useRef<boolean>(false);
 
-  // Request persistent storage for installed PWA
-  useEffect(() => {
-    void requestPersistentStorage();
-  }, []);
-
   // Initialize stored file handle on mount
   useEffect(() => {
     let active = true;
@@ -67,34 +61,6 @@ export function useAutoBackup(appData: AppStorageData): UseAutoBackupResult {
     };
   }, []);
 
-  // If backup handle is in 'needs-permission' state on reopen, automatically reauthorize
-  // on the user's very first tap/click anywhere in the app so they never need to manually click "تفعيل".
-  useEffect(() => {
-    if (snapshot.status !== 'needs-permission') return;
-
-    let handled = false;
-    const handleFirstGesture = async () => {
-      if (handled) return;
-      handled = true;
-      const ctrl = controllerRef.current;
-      if (!ctrl) return;
-      try {
-        const next = await ctrl.reauthorize(latestDataRef.current);
-        setSnapshot(next);
-      } catch {
-        // Status remains needs-permission if browser denied
-      }
-    };
-
-    window.addEventListener('pointerdown', handleFirstGesture, { capture: true, once: true });
-    window.addEventListener('keydown', handleFirstGesture, { capture: true, once: true });
-
-    return () => {
-      window.removeEventListener('pointerdown', handleFirstGesture, { capture: true });
-      window.removeEventListener('keydown', handleFirstGesture, { capture: true });
-    };
-  }, [snapshot.status]);
-
   // Watch any data change (entries, shift, monthlyHourlyRates) and auto-overwrite the single linked file
   useEffect(() => {
     const currentSignature = getBackupContentSignature(appData);
@@ -105,10 +71,7 @@ export function useAutoBackup(appData: AppStorageData): UseAutoBackupResult {
 
     const ctrl = controllerRef.current!;
     const currentSnap = ctrl.getSnapshot();
-    if (
-      !initializedRef.current ||
-      (currentSnap.status !== 'active' && currentSnap.status !== 'needs-permission')
-    ) {
+    if (!initializedRef.current || currentSnap.status !== 'active') {
       return;
     }
 
@@ -125,8 +88,7 @@ export function useAutoBackup(appData: AppStorageData): UseAutoBackupResult {
   useEffect(() => {
     const flushNow = () => {
       const ctrl = controllerRef.current!;
-      const snap = ctrl.getSnapshot();
-      if ((snap.status === 'active' || snap.status === 'needs-permission') && hasMountedDataChangeRef.current) {
+      if (ctrl.getSnapshot().status === 'active' && hasMountedDataChangeRef.current) {
         ctrl.syncData(latestDataRef.current).then((next) => {
           setSnapshot(next);
         });
