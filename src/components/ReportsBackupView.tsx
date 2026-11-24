@@ -525,11 +525,13 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
             >
               <div>
                 <p className="text-sm font-bold text-amber-950">
-                  مطلوب ضغطة واحدة لتكملة الحفظ التلقائي على الملف
+                  الملف مرتبط وجاهز للمزامنة التلقائية
                 </p>
                 <p className="mt-0.5 text-xs text-amber-900">
                   الملف المرتبط:{' '}
                   <span className="tabular-time font-bold">{autoBackup.snapshot.fileName}</span>
+                  {' · '}
+                  <span>بيتفعل تلقائيًا مع أول لمسة في التطبيق، أو اضغط تفعيل دلوقتي</span>
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">

@@ -213,3 +213,25 @@ test('4. معالجة المتصفح غير المدعوم أو الإطار ا�
   const afterIframe = await iframeCtrl.linkFile(makeSampleData());
   assert.equal(afterIframe.status, 'blocked-iframe');
 });
+
+test('5. مزامنة البيانات أثناء وجود إذن prompt تطلب الإذن وتحدث الملف فورًا', async () => {
+  const mockFile = createMockHandle('prompt');
+  const store = createMemoryHandleStore(mockFile.handle);
+
+  const ctrl = createAutoBackupController({
+    isSupported: () => true,
+    handleStore: store,
+    loadMeta: () => ({ fileName: 'daftar-elshoghl-backup.json', lastSyncedAt: null }),
+    saveMeta: () => {},
+  });
+
+  const snap = await ctrl.init();
+  assert.equal(snap.status, 'needs-permission');
+
+  // When syncData is called (e.g. user performed an action), it attempts requestHandleWritePermission and writes
+  const synced = await ctrl.syncData(makeSampleData({ selectedShift: 'shift2' }), true);
+  assert.equal(synced.status, 'active');
+  assert.equal(mockFile.getWriteCount(), 1);
+  assert.equal(JSON.parse(mockFile.getContent()).selectedShift, 'shift2');
+});
+

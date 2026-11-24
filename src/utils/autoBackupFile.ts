@@ -57,6 +57,25 @@ export function isFileSystemAccessSupported(): boolean {
   );
 }
 
+/**
+ * Requests persistent storage from the browser (navigator.storage.persist()).
+ * When granted in installed PWAs, Chrome retains persistent permissions for File System Access handles.
+ */
+export async function requestPersistentStorage(): Promise<boolean> {
+  if (
+    typeof navigator !== 'undefined' &&
+    navigator.storage &&
+    typeof navigator.storage.persist === 'function'
+  ) {
+    try {
+      return await navigator.storage.persist();
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 export function serializeAutoBackupData(data: AppStorageData): string {
   const payload = createBackupPayload(data);
   return JSON.stringify(payload, null, 2);
@@ -231,6 +250,7 @@ function defaultPickSaveFile(): Promise<FileHandleLike> {
     return Promise.reject(new Error('File System Access API not supported'));
   }
   return picker({
+    id: 'daftar-elshoghl-backup',
     suggestedName: AUTO_BACKUP_DEFAULT_FILENAME,
     types: [
       {
@@ -335,7 +355,15 @@ export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBacku
       return snapshot;
     }
 
-    const perm = await queryHandleWritePermission(handle);
+    let perm = await queryHandleWritePermission(handle);
+    if (perm === 'prompt') {
+      try {
+        perm = await requestHandleWritePermission(handle);
+      } catch {
+        // May fail if not called within user gesture, perm remains prompt
+      }
+    }
+
     if (perm !== 'granted') {
       return updateSnapshot({
         status: perm === 'prompt' ? 'needs-permission' : 'error',
@@ -399,6 +427,7 @@ export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBacku
     }
 
     try {
+      void requestPersistentStorage();
       const handle = await pickSaveFile();
       currentHandle = handle;
       try {
