@@ -470,18 +470,43 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
 
         {/* Auto-backup status & primary action */}
         <div className="mt-4">
-          {autoBackup.snapshot.status === 'unsupported' ? (
+          {!autoBackup.snapshot.supported ? (
             <div
               data-testid="auto-backup-unsupported"
-              className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 text-xs text-amber-950"
+              className="rounded-2xl border border-teal-200 bg-teal-50/50 p-4 sm:p-5"
             >
-              <p className="font-bold">
-                المتصفح ده مش بيدعم التعديل التلقائي المباشر على ملفات الجهاز
-              </p>
-              <p className="mt-1 text-amber-900">
-                تقدر تحفظ نسخة احتياطية يدويًا من الزر تحت، أو تستخدم متصفح Chrome / Edge أو تثبّت
-                التطبيق عشان التحديث التلقائي في ملف واحد يشتغل.
-              </p>
+              <div className="flex items-start gap-3">
+                <AlertCircle className="mt-0.5 h-5 w-5 text-teal-700 shrink-0" aria-hidden="true" />
+                <div>
+                  <p className="text-sm font-bold text-slate-900">
+                    المزامنة التلقائية الصامتة مخصصة لمتصفحات الكمبيوتر (Chromium / Chrome / Edge)
+                  </p>
+                  <p className="mt-1 text-xs text-slate-600 leading-relaxed">
+                    متصفحات الهواتف المحمولة لا تدعم الكتابة الصامتة المباشرة على الملفات عبر File System Access API. نوفر لك تنزيل يدوي بديل لمتصفحات الهواتف لحفظ كل بياناتك ومستحقاتك بضغطة زر.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleExportJson}
+                  data-testid="mobile-manual-download-btn"
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-teal-800 whitespace-nowrap cursor-pointer shadow-xs"
+                >
+                  <Download className="h-4 w-4" aria-hidden="true" />
+                  <span>تنزيل نسخة يدوية على الهاتف (JSON)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-50 whitespace-nowrap cursor-pointer"
+                >
+                  <Upload className="h-4 w-4" aria-hidden="true" />
+                  <span>استعادة من ملف</span>
+                </button>
+              </div>
             </div>
           ) : autoBackup.snapshot.status === 'blocked-iframe' ? (
             <div
@@ -502,9 +527,13 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
               <div>
                 <p className="text-sm font-bold text-slate-900">لسه مفيش ملف مربوط للحفظ التلقائي</p>
                 <p className="mt-0.5 text-xs text-slate-600">
-                  اختار مكان واسم ملف واحد على جهازك مرة واحدة، وكل التعديلات الجاية هتتكتب فوقه
-                  تلقائيًا.
+                  اضغط على زر ربط الملف واختار ملف .json، وكل عملية حفظ أو تعديل هتتكتب تلقائيًا وصامتًا في نفس الملف.
                 </p>
+                {autoBackup.snapshot.unsyncedChangesCount > 0 && (
+                  <p className="mt-1 text-xs font-semibold text-amber-800">
+                    يوجد {autoBackup.snapshot.unsyncedChangesCount} تعديل غير مصدّر للملف بانتظار الربط
+                  </p>
+                )}
               </div>
               <button
                 type="button"
@@ -515,7 +544,7 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
                 className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-teal-700 px-4 py-2.5 text-xs font-bold text-white hover:bg-teal-800 whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <FolderSync className="h-4 w-4" aria-hidden="true" />
-                <span>تحديد ملف النسخ التلقائي</span>
+                <span>ربط ملف نسخ تلقائي</span>
               </button>
             </div>
           ) : autoBackup.snapshot.status === 'needs-permission' ? (
@@ -525,12 +554,23 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
             >
               <div>
                 <p className="text-sm font-bold text-amber-950">
-                  مطلوب ضغطة واحدة لتكملة الحفظ التلقائي على الملف
+                  مطلوب تجديد إذن الكتابة على الملف بعد إعادة فتح المتصفح
                 </p>
                 <p className="mt-0.5 text-xs text-amber-900">
-                  الملف المرتبط:{' '}
+                  اسم الملف المربوط:{' '}
                   <span className="tabular-time font-bold">{autoBackup.snapshot.fileName}</span>
+                  {formattedLastSync && (
+                    <>
+                      {' · '}
+                      <span>وقت آخر حفظ: {formattedLastSync}</span>
+                    </>
+                  )}
                 </p>
+                {autoBackup.snapshot.unsyncedChangesCount > 0 && (
+                  <p className="mt-1 text-xs font-bold text-amber-900">
+                    عدد التعديلات غير المصدرة: {autoBackup.snapshot.unsyncedChangesCount} تعديل بانتظار المزامنة
+                  </p>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -549,6 +589,7 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
                   onClick={() => {
                     void autoBackup.unlinkFile();
                   }}
+                  data-testid="unlink-auto-backup-btn"
                   className="inline-flex min-h-[42px] items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 whitespace-nowrap shrink-0 cursor-pointer"
                 >
                   <Unlink className="h-3.5 w-3.5" aria-hidden="true" />
@@ -559,43 +600,71 @@ export const ReportsBackupView: React.FC<ReportsBackupViewProps> = ({
           ) : (
             <div
               data-testid="auto-backup-active"
-              className={`rounded-xl border p-4 ${
+              className={`rounded-xl border p-4 sm:p-5 ${
                 autoBackup.snapshot.status === 'error'
                   ? 'border-red-200 bg-red-50/70'
                   : 'border-teal-200 bg-teal-50/60'
               }`}
             >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-start gap-2.5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-start gap-3">
                   <FileCheck2
-                    className={`mt-0.5 h-5 w-5 shrink-0 ${
+                    className={`mt-1 h-5 w-5 shrink-0 ${
                       autoBackup.snapshot.status === 'error' ? 'text-red-700' : 'text-teal-700'
                     }`}
                     aria-hidden="true"
                   />
-                  <div>
+                  <div className="space-y-1">
                     <p className="text-sm font-bold text-slate-900">
                       {autoBackup.snapshot.status === 'syncing'
-                        ? 'جاري تحديث ملف النسخة الاحتياطية...'
+                        ? 'جاري حفظ التعديلات صامتًا في الملف...'
                         : autoBackup.snapshot.status === 'error'
                         ? 'حصلت مشكلة في تحديث الملف التلقائي'
-                        : 'الحفظ التلقائي شغال على ملف واحد'}
+                        : 'الحفظ التلقائي الصامت شغال ومربوط بالملف'}
                     </p>
-                    <p className="mt-0.5 text-xs text-slate-700">
-                      اسم الملف:{' '}
-                      <span
-                        data-testid="auto-backup-filename"
-                        className="tabular-time font-bold text-slate-900"
-                      >
-                        {autoBackup.snapshot.fileName}
-                      </span>
-                      {formattedLastSync && (
-                        <>
-                          {' · '}
-                          <span>آخر تحديث الساعة {formattedLastSync}</span>
-                        </>
+
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-700">
+                      <div>
+                        <span>اسم الملف المربوط: </span>
+                        <span
+                          data-testid="auto-backup-filename"
+                          className="tabular-time font-bold text-slate-900"
+                        >
+                          {autoBackup.snapshot.fileName}
+                        </span>
+                      </div>
+
+                      <div>
+                        <span>وقت آخر حفظ: </span>
+                        <span
+                          data-testid="auto-backup-last-synced"
+                          className="tabular-time font-bold text-slate-900"
+                        >
+                          {formattedLastSync ? formattedLastSync : 'الآن'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="pt-0.5">
+                      {autoBackup.snapshot.unsyncedChangesCount === 0 ? (
+                        <span
+                          data-testid="auto-backup-unsynced-status"
+                          className="inline-flex items-center gap-1 text-xs font-bold text-teal-800"
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5 text-teal-700" aria-hidden="true" />
+                          <span>جميع التعديلات محفوظة ومصدرة للملف (0 تعديل غير مصدّر)</span>
+                        </span>
+                      ) : (
+                        <span
+                          data-testid="auto-backup-unsynced-status"
+                          className="inline-flex items-center gap-1 text-xs font-bold text-amber-800"
+                        >
+                          <AlertCircle className="h-3.5 w-3.5 text-amber-700" aria-hidden="true" />
+                          <span>يوجد {autoBackup.snapshot.unsyncedChangesCount} تعديل غير مصدّر للملف</span>
+                        </span>
                       )}
-                    </p>
+                    </div>
+
                     {autoBackup.snapshot.errorMessage && (
                       <p className="mt-1 text-xs font-semibold text-red-700">
                         {autoBackup.snapshot.errorMessage}

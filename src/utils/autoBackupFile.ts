@@ -28,6 +28,7 @@ export interface AutoBackupSnapshot {
   status: AutoBackupStatus;
   fileName: string | null;
   lastSyncedAt: string | null;
+  unsyncedChangesCount: number;
   errorMessage: string | null;
 }
 
@@ -53,6 +54,7 @@ export interface HandleStoreLike {
 export function isFileSystemAccessSupported(): boolean {
   return (
     typeof window !== 'undefined' &&
+    'showSaveFilePicker' in window &&
     typeof (window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker === 'function'
   );
 }
@@ -215,6 +217,7 @@ export interface AutoBackupController {
   init(): Promise<AutoBackupSnapshot>;
   linkFile(currentData: AppStorageData): Promise<AutoBackupSnapshot>;
   reauthorize(currentData: AppStorageData): Promise<AutoBackupSnapshot>;
+  syncAutoBackupOnChange(data: AppStorageData, force?: boolean): Promise<AutoBackupSnapshot>;
   syncData(data: AppStorageData, force?: boolean): Promise<AutoBackupSnapshot>;
   unlinkFile(): Promise<AutoBackupSnapshot>;
   readLinkedBackup(): ReturnType<typeof parseBackupJson> | Promise<ReturnType<typeof parseBackupJson>>;
@@ -241,6 +244,111 @@ function defaultPickSaveFile(): Promise<FileHandleLike> {
   });
 }
 
+/**
+ * Standalone synchronization function called after saves or edits in the application.
+ * Reads the handle from IndexedDB, checks queryPermission({ mode: 'readwrite' }),
+ * and silently writes directly to the same file via createWritable().
+ */
+export async function syncAutoBackupOnChange(
+  data: AppStorageData,
+  deps: AutoBackupDeps = {}
+): Promise<AutoBackupSnapshot> {
+  const checkSupported = deps.isSupported ?? isFileSystemAccessSupported;
+  if (!checkSupported()) {
+    return {
+      supported: false,
+      status: 'unsupported',
+      fileName: null,
+      lastSyncedAt: null,
+      unsyncedChangesCount: 1,
+      errorMessage: null,
+    };
+  }
+
+  const handleStore = deps.handleStore ?? createIndexedDbHandleStore();
+  const loadMeta = deps.loadMeta ?? loadAutoBackupMeta;
+  const saveMeta = deps.saveMeta ?? saveAutoBackupMeta;
+  const nowIso = deps.nowIso ?? (() => new Date().toISOString());
+
+  const meta = loadMeta();
+
+  let handle: FileHandleLike | null = null;
+  try {
+    handle = await handleStore.get();
+  } catch {
+    return {
+      supported: true,
+      status: 'error',
+      fileName: meta?.fileName ?? null,
+      lastSyncedAt: meta?.lastSyncedAt ?? null,
+      unsyncedChangesCount: 1,
+      errorMessage: 'تعذر الوصول إلى مخزن الملف في IndexedDB.',
+    };
+  }
+
+  if (!handle) {
+    return {
+      supported: true,
+      status: 'unlinked',
+      fileName: null,
+      lastSyncedAt: null,
+      unsyncedChangesCount: 1,
+      errorMessage: null,
+    };
+  }
+
+  const perm = await queryHandleWritePermission(handle);
+  const fileName = handle.name || meta?.fileName || AUTO_BACKUP_DEFAULT_FILENAME;
+
+  if (perm !== 'granted') {
+    return {
+      supported: true,
+      status: perm === 'prompt' ? 'needs-permission' : 'error',
+      fileName,
+      lastSyncedAt: meta?.lastSyncedAt ?? null,
+      unsyncedChangesCount: 1,
+      errorMessage:
+        perm === 'denied'
+          ? 'تم رفض إذن الكتابة على الملف. اربط الملف مرة تانية.'
+          : null,
+    };
+  }
+
+  try {
+    await writeBackupToHandle(handle, data);
+    const syncedAt = nowIso();
+    saveMeta({ fileName, lastSyncedAt: syncedAt });
+    return {
+      supported: true,
+      status: 'active',
+      fileName,
+      lastSyncedAt: syncedAt,
+      unsyncedChangesCount: 0,
+      errorMessage: null,
+    };
+  } catch (err) {
+    const name = err instanceof Error ? err.name : '';
+    if (name === 'NotAllowedError') {
+      return {
+        supported: true,
+        status: 'needs-permission',
+        fileName,
+        lastSyncedAt: meta?.lastSyncedAt ?? null,
+        unsyncedChangesCount: 1,
+        errorMessage: null,
+      };
+    }
+    return {
+      supported: true,
+      status: 'error',
+      fileName,
+      lastSyncedAt: meta?.lastSyncedAt ?? null,
+      unsyncedChangesCount: 1,
+      errorMessage: 'تعذر الكتابة الصامتة في الملف. جرب ربط الملف مرة تانية.',
+    };
+  }
+}
+
 export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBackupController {
   const checkSupported = deps.isSupported ?? isFileSystemAccessSupported;
   const pickSaveFile = deps.pickSaveFile ?? defaultPickSaveFile;
@@ -251,21 +359,18 @@ export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBacku
 
   let currentHandle: FileHandleLike | null = null;
   let lastSyncedSignature: string | null = null;
-  let writeChain: Promise<AutoBackupSnapshot> = Promise.resolve({
-    supported: checkSupported(),
-    status: checkSupported() ? 'unlinked' : 'unsupported',
-    fileName: null,
-    lastSyncedAt: null,
-    errorMessage: null,
-  });
+  let pendingUnsyncedCount = 0;
 
   let snapshot: AutoBackupSnapshot = {
     supported: checkSupported(),
     status: checkSupported() ? 'unlinked' : 'unsupported',
     fileName: null,
     lastSyncedAt: null,
+    unsyncedChangesCount: 0,
     errorMessage: null,
   };
+
+  let writeChain: Promise<AutoBackupSnapshot> = Promise.resolve(snapshot);
 
   function updateSnapshot(patch: Partial<AutoBackupSnapshot>): AutoBackupSnapshot {
     snapshot = { ...snapshot, ...patch };
@@ -280,6 +385,7 @@ export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBacku
         status: 'unsupported',
         fileName: null,
         lastSyncedAt: null,
+        unsyncedChangesCount: 0,
         errorMessage: null,
       });
     }
@@ -294,6 +400,7 @@ export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBacku
           status: 'unlinked',
           fileName: null,
           lastSyncedAt: null,
+          unsyncedChangesCount: 0,
           errorMessage: null,
         });
       }
@@ -309,6 +416,7 @@ export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBacku
         status,
         fileName,
         lastSyncedAt: meta?.lastSyncedAt ?? null,
+        unsyncedChangesCount: 0,
         errorMessage:
           perm === 'denied'
             ? 'المتصفح منع الكتابة على الملف ده. اختار الملف تاني لتفعيل الحفظ التلقائي.'
@@ -320,6 +428,7 @@ export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBacku
         status: meta ? 'needs-permission' : 'unlinked',
         fileName: meta?.fileName ?? null,
         lastSyncedAt: meta?.lastSyncedAt ?? null,
+        unsyncedChangesCount: 0,
         errorMessage: null,
       });
     }
@@ -337,8 +446,10 @@ export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBacku
 
     const perm = await queryHandleWritePermission(handle);
     if (perm !== 'granted') {
+      pendingUnsyncedCount += 1;
       return updateSnapshot({
         status: perm === 'prompt' ? 'needs-permission' : 'error',
+        unsyncedChangesCount: pendingUnsyncedCount,
         errorMessage:
           perm === 'denied'
             ? 'تم رفض إذن الكتابة على الملف. اربط الملف مرة تانية.'
@@ -351,6 +462,7 @@ export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBacku
     try {
       await writeBackupToHandle(handle, data);
       lastSyncedSignature = sig;
+      pendingUnsyncedCount = 0;
       const syncedAt = nowIso();
       const fileName = handle.name || snapshot.fileName || AUTO_BACKUP_DEFAULT_FILENAME;
       saveMeta({ fileName, lastSyncedAt: syncedAt });
@@ -358,36 +470,75 @@ export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBacku
         status: 'active',
         fileName,
         lastSyncedAt: syncedAt,
+        unsyncedChangesCount: 0,
         errorMessage: null,
       });
     } catch (err) {
+      pendingUnsyncedCount += 1;
       const name = err instanceof Error ? err.name : '';
       if (name === 'NotAllowedError') {
         return updateSnapshot({
           status: 'needs-permission',
+          unsyncedChangesCount: pendingUnsyncedCount,
           errorMessage: null,
         });
       }
       if (name === 'NotFoundError') {
         return updateSnapshot({
           status: 'error',
+          unsyncedChangesCount: pendingUnsyncedCount,
           errorMessage: 'ملف النسخة الاحتياطية اتنقل أو اتمسح من مكانه. اختار ملف جديد.',
         });
       }
       return updateSnapshot({
         status: 'error',
+        unsyncedChangesCount: pendingUnsyncedCount,
         errorMessage: 'تعذر تحديث ملف النسخة الاحتياطية تلقائيًا. جرب ربط الملف تاني.',
       });
     }
   }
 
-  function syncData(data: AppStorageData, force = false): Promise<AutoBackupSnapshot> {
-    if (!snapshot.supported || !currentHandle) {
-      return Promise.resolve(snapshot);
+  function syncAutoBackupOnChange(
+    data: AppStorageData,
+    force = false
+  ): Promise<AutoBackupSnapshot> {
+    if (!snapshot.supported) {
+      pendingUnsyncedCount += 1;
+      return Promise.resolve(
+        updateSnapshot({
+          unsyncedChangesCount: pendingUnsyncedCount,
+        })
+      );
     }
-    const handleRef = currentHandle;
-    writeChain = writeChain.then(() => performWrite(handleRef, data, force));
+
+    writeChain = writeChain.then(async () => {
+      if (!currentHandle) {
+        try {
+          const stored = await handleStore.get();
+          if (stored) {
+            currentHandle = stored;
+          }
+        } catch {
+          // IDB read failed
+        }
+      }
+
+      if (!currentHandle) {
+        pendingUnsyncedCount += 1;
+        return updateSnapshot({
+          status: 'unlinked',
+          unsyncedChangesCount: pendingUnsyncedCount,
+        });
+      }
+
+      return performWrite(currentHandle, data, force);
+    });
+
     return writeChain;
+  }
+
+  function syncData(data: AppStorageData, force = false): Promise<AutoBackupSnapshot> {
+    return syncAutoBackupOnChange(data, force);
   }
 
   async function linkFile(currentData: AppStorageData): Promise<AutoBackupSnapshot> {
@@ -406,16 +557,23 @@ export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBacku
       } catch {
         // Keep handle active in memory even if IndexedDB persistence is restricted
       }
-      lastSyncedSignature = null;
 
-      updateSnapshot({
+      // Initial silent write immediately
+      await writeBackupToHandle(handle, currentData);
+      const syncedAt = nowIso();
+      const fileName = handle.name || AUTO_BACKUP_DEFAULT_FILENAME;
+      lastSyncedSignature = getBackupContentSignature(currentData);
+      pendingUnsyncedCount = 0;
+      saveMeta({ fileName, lastSyncedAt: syncedAt });
+
+      return updateSnapshot({
         supported: true,
-        status: 'syncing',
-        fileName: handle.name || AUTO_BACKUP_DEFAULT_FILENAME,
+        status: 'active',
+        fileName,
+        lastSyncedAt: syncedAt,
+        unsyncedChangesCount: 0,
         errorMessage: null,
       });
-
-      return syncData(currentData, true);
     } catch (err) {
       const name = err instanceof Error ? err.name : '';
       const msg = err instanceof Error ? err.message : '';
@@ -447,7 +605,7 @@ export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBacku
     try {
       const perm = await requestHandleWritePermission(currentHandle);
       if (perm === 'granted') {
-        return syncData(currentData, true);
+        return syncAutoBackupOnChange(currentData, true);
       }
       return updateSnapshot({
         status: perm === 'prompt' ? 'needs-permission' : 'error',
@@ -467,6 +625,7 @@ export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBacku
   async function unlinkFile(): Promise<AutoBackupSnapshot> {
     currentHandle = null;
     lastSyncedSignature = null;
+    pendingUnsyncedCount = 0;
     saveMeta(null);
     try {
       await handleStore.clear();
@@ -477,6 +636,7 @@ export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBacku
       status: checkSupported() ? 'unlinked' : 'unsupported',
       fileName: null,
       lastSyncedAt: null,
+      unsyncedChangesCount: 0,
       errorMessage: null,
     });
   }
@@ -502,6 +662,7 @@ export function createAutoBackupController(deps: AutoBackupDeps = {}): AutoBacku
     init,
     linkFile,
     reauthorize,
+    syncAutoBackupOnChange,
     syncData,
     unlinkFile,
     readLinkedBackup,

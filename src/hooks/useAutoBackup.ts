@@ -13,6 +13,7 @@ export interface UseAutoBackupResult {
   snapshot: AutoBackupSnapshot;
   linkFile: () => Promise<void>;
   reauthorize: () => Promise<void>;
+  syncAutoBackupOnChange: (data?: AppStorageData) => Promise<void>;
   syncNow: () => Promise<void>;
   unlinkFile: () => Promise<void>;
   readLinkedBackup: () => ReturnType<
@@ -31,6 +32,7 @@ export function useAutoBackup(appData: AppStorageData): UseAutoBackupResult {
     status: isFileSystemAccessSupported() ? 'unlinked' : 'unsupported',
     fileName: null,
     lastSyncedAt: null,
+    unsyncedChangesCount: 0,
     errorMessage: null,
   }));
 
@@ -51,7 +53,7 @@ export function useAutoBackup(appData: AppStorageData): UseAutoBackupResult {
       setSnapshot(next);
       // If handle is already active on reopen and data changed since mount, sync immediately
       if (next.status === 'active' && hasMountedDataChangeRef.current) {
-        ctrl.syncData(latestDataRef.current).then((synced) => {
+        ctrl.syncAutoBackupOnChange(latestDataRef.current).then((synced) => {
           if (active) setSnapshot(synced);
         });
       }
@@ -70,13 +72,12 @@ export function useAutoBackup(appData: AppStorageData): UseAutoBackupResult {
     hasMountedDataChangeRef.current = true;
 
     const ctrl = controllerRef.current!;
-    const currentSnap = ctrl.getSnapshot();
-    if (!initializedRef.current || currentSnap.status !== 'active') {
+    if (!initializedRef.current) {
       return;
     }
 
     const timer = window.setTimeout(() => {
-      ctrl.syncData(latestDataRef.current).then((next) => {
+      ctrl.syncAutoBackupOnChange(latestDataRef.current).then((next) => {
         setSnapshot(next);
       });
     }, DEBOUNCE_MS);
@@ -88,8 +89,8 @@ export function useAutoBackup(appData: AppStorageData): UseAutoBackupResult {
   useEffect(() => {
     const flushNow = () => {
       const ctrl = controllerRef.current!;
-      if (ctrl.getSnapshot().status === 'active' && hasMountedDataChangeRef.current) {
-        ctrl.syncData(latestDataRef.current).then((next) => {
+      if (hasMountedDataChangeRef.current) {
+        ctrl.syncAutoBackupOnChange(latestDataRef.current).then((next) => {
           setSnapshot(next);
         });
       }
@@ -121,10 +122,15 @@ export function useAutoBackup(appData: AppStorageData): UseAutoBackupResult {
     setSnapshot(next);
   }, []);
 
-  const syncNow = useCallback(async () => {
-    const next = await controllerRef.current!.syncData(latestDataRef.current, true);
+  const syncAutoBackupOnChange = useCallback(async (data?: AppStorageData) => {
+    const target = data ?? latestDataRef.current;
+    const next = await controllerRef.current!.syncAutoBackupOnChange(target, true);
     setSnapshot(next);
   }, []);
+
+  const syncNow = useCallback(async () => {
+    await syncAutoBackupOnChange();
+  }, [syncAutoBackupOnChange]);
 
   const unlinkFile = useCallback(async () => {
     const next = await controllerRef.current!.unlinkFile();
@@ -140,6 +146,7 @@ export function useAutoBackup(appData: AppStorageData): UseAutoBackupResult {
     snapshot,
     linkFile,
     reauthorize,
+    syncAutoBackupOnChange,
     syncNow,
     unlinkFile,
     readLinkedBackup,

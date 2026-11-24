@@ -5,6 +5,8 @@ import {
   createAutoBackupController,
   FileHandleLike,
   HandleStoreLike,
+  isFileSystemAccessSupported,
+  syncAutoBackupOnChange,
 } from './autoBackupFile';
 import { AppStorageData } from '../types/work';
 
@@ -212,4 +214,82 @@ test('4. معالجة المتصفح غير المدعوم أو الإطار ا�
   await iframeCtrl.init();
   const afterIframe = await iframeCtrl.linkFile(makeSampleData());
   assert.equal(afterIframe.status, 'blocked-iframe');
+});
+
+test('5. دالة syncAutoBackupOnChange تقرأ الـ handle من IndexedDB وتتحقق من صلاحية الكتابة وتكتب صامتًا عبر createWritable', async () => {
+  const mockFile = createMockHandle('granted');
+  const store = createMemoryHandleStore(mockFile.handle);
+  let savedMeta: AutoBackupMeta | null = null;
+
+  const data = makeSampleData({
+    selectedShift: 'shift3',
+    monthlyHourlyRates: { '2026-11': 90 },
+  });
+
+  const res = await syncAutoBackupOnChange(data, {
+    isSupported: () => true,
+    handleStore: store,
+    loadMeta: () => savedMeta,
+    saveMeta: (m) => {
+      savedMeta = m;
+    },
+    nowIso: () => '2026-11-24T12:00:00.000Z',
+  });
+
+  assert.equal(res.status, 'active');
+  assert.equal(res.unsyncedChangesCount, 0);
+  assert.equal(res.fileName, 'daftar-elshoghl-backup.json');
+  assert.equal(res.lastSyncedAt, '2026-11-24T12:00:00.000Z');
+  assert.equal(mockFile.getWriteCount(), 1);
+
+  const parsed = JSON.parse(mockFile.getContent());
+  assert.equal(parsed.selectedShift, 'shift3');
+  assert.equal(parsed.monthlyHourlyRates['2026-11'], 90);
+});
+
+test('6. تتبع عدد التعديلات غير المصدرة بدقة وإلغاء الربط (Unlink) يفرغ IndexedDB ويصفر العداد', async () => {
+  const mockFile = createMockHandle('prompt'); // Permission not granted yet
+  const store = createMemoryHandleStore(mockFile.handle);
+  let savedMeta: AutoBackupMeta | null = { fileName: mockFile.handle.name, lastSyncedAt: null };
+
+  const ctrl = createAutoBackupController({
+    isSupported: () => true,
+    handleStore: store,
+    loadMeta: () => savedMeta,
+    saveMeta: (m) => {
+      savedMeta = m;
+    },
+  });
+
+  await ctrl.init();
+
+  // Try syncing without granted permission -> increments unsyncedChangesCount
+  const snap1 = await ctrl.syncAutoBackupOnChange(makeSampleData({ selectedShift: 'shift2' }), true);
+  assert.equal(snap1.status, 'needs-permission');
+  assert.equal(snap1.unsyncedChangesCount, 1);
+  assert.equal(mockFile.getWriteCount(), 0);
+
+  // Another change before authorization
+  const snap2 = await ctrl.syncAutoBackupOnChange(makeSampleData({ selectedShift: 'shift3' }), true);
+  assert.equal(snap2.unsyncedChangesCount, 2);
+
+  // Authorize -> writes silently, unsyncedChangesCount resets to 0
+  const afterReauth = await ctrl.reauthorize(makeSampleData({ selectedShift: 'shift3' }));
+  assert.equal(afterReauth.status, 'active');
+  assert.equal(afterReauth.unsyncedChangesCount, 0);
+  assert.equal(mockFile.getWriteCount(), 1);
+
+  // Unlink (إلغاء الربط)
+  const unlinked = await ctrl.unlinkFile();
+  assert.equal(unlinked.status, 'unlinked');
+  assert.equal(unlinked.unsyncedChangesCount, 0);
+  assert.equal(unlinked.fileName, null);
+  assert.equal(await store.get(), null);
+});
+
+test('7. فحص توفر الميزة في المتصفح عبر showSaveFilePicker in window', () => {
+  // Global window is simulated or present
+  assert.equal(typeof isFileSystemAccessSupported, 'function');
+  const supported = isFileSystemAccessSupported();
+  assert.equal(typeof supported, 'boolean');
 });
